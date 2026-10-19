@@ -92,15 +92,14 @@ Recomendado: **container LXC Debian 12** (leve). Uma VM Debian/Ubuntu também fu
 
 ### Opção A — pelo GitHub (recomendado)
 
-Depois de dar push do projeto no GitHub, **no console do container**:
+O código está em https://github.com/luisf4/stream-app (público). **No console do container**:
 
 ```bash
-apt-get install -y git && git clone https://github.com/SEU_USUARIO/SEU_REPO.git /root/resenha && cd /root/resenha/deploy/cloudflare
+apt-get install -y git && git clone https://github.com/luisf4/stream-app.git /root/resenha && cd /root/resenha/deploy/cloudflare
 ```
 
-Se o repositório for **privado**, o `git clone` pede usuário e senha: use seu usuário do GitHub e, como senha,
-um **token** criado em GitHub → Settings → Developer settings → Personal access tokens (permissão de leitura
-do repositório). Senhas e tokens do projeto não vão para o GitHub (os `.env` estão no `.gitignore`).
+Senhas e tokens do projeto não vão para o GitHub (os `.env` estão no `.gitignore`), então o repositório
+pode ser público sem problema.
 
 Para atualizar depois: `cd /root/resenha && git pull && cd deploy/cloudflare && docker compose up -d --build`.
 

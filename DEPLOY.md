@@ -87,10 +87,10 @@ mkdir -p ~/resenha && tar -xzf ~/resenha.tar.gz -C ~/resenha && cd ~/resenha/dep
 
 ### Opção B — com Git
 
-Se o projeto estiver num repositório (GitHub, etc.):
+O código está público em https://github.com/luisf4/stream-app:
 
 ```bash
-git clone https://github.com/SEU_USUARIO/resenha.git && cd resenha/deploy
+git clone https://github.com/luisf4/stream-app.git resenha && cd resenha/deploy
 ```
 
 ---

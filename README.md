@@ -1,5 +1,7 @@
 # Resenha
 
+Repositório: https://github.com/luisf4/stream-app
+
 "Discord caseiro" para você e seus amigos: **um servidor só**, alguns **canais de voz**, e em cada canal:
 
 - 🎙️ voz (com supressão de ruído, mutar/ensurdecer, volume por pessoa, atalhos globais)
@@ -40,8 +42,9 @@ que roda junto com o servidor: cada pessoa envia o vídeo uma vez e ele distribu
 ### Falta
 
 - [ ] Configurar os **Public Hostnames** do túnel: `resenha.` → `localhost:3000` e `voz.` → `localhost:7880`
-- [ ] Enviar o código para o **GitHub**
-- [ ] No container: clonar o repositório, apagar o `cloudflared-temp` e rodar `deploy/cloudflare/install.sh`
+- [ ] Enviar o código para o **GitHub** ([luisf4/stream-app](https://github.com/luisf4/stream-app))
+- [ ] No container: `git clone https://github.com/luisf4/stream-app.git /root/resenha`, apagar o
+      `cloudflared-temp` e rodar `deploy/cloudflare/install.sh`
       ([DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md), passos 5 e 6)
 - [ ] Criar o `client/.env` com o domínio e a senha e gerar o instalador para os amigos
 - [ ] Testar com os amigos pelo domínio: voz, tela 1080p e o consumo no painel do TURN
