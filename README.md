@@ -5,7 +5,7 @@ Repositório: https://github.com/luisf4/stream-app
 "Discord caseiro" para você e seus amigos: **um servidor só**, alguns **canais de voz**, e em cada canal:
 
 - 🎙️ voz (com supressão de ruído por IA, mutar/ensurdecer, volume por pessoa, atalhos globais)
-- 🖥️ compartilhamento de tela **com o áudio do PC** (até 1440p 60fps)
+- 🖥️ compartilhamento de tela **com o áudio do PC** (1080p ou 720p a 30fps)
 - 📷 webcam
 - 💬 chat de texto com histórico, imagens (otimizadas antes de enviar), vídeos e arquivos (colar print com Ctrl+V ou arrastar)
 
@@ -162,6 +162,8 @@ o do servidor para o container do Proxmox) está em
   mas isso depende da versão do Chromium/Windows. Se alguém ouvir eco da própria voz quando você transmite
   com áudio, o próximo passo é um pequeno módulo nativo que exclui o processo do app da captura
   (é o que o Discord faz).
-- **Consumo do TURN do Cloudflare:** 1.000 GB/mês grátis. Tela 1080p60 com 3 pessoas assistindo gasta até
-  ~12,6 GB/hora (~80 h/mês); em 1080p30 ~120 h/mês; só voz é quase nada.
+- **Qualidade da transmissão:** 1080p 30fps (~4,5 Mbps por amigo assistindo) ou 720p 30fps (~2,5 Mbps).
+  Tudo sai do upload de quem hospeda o servidor: com 13 Mbps de upload, 1080p atende ~2 amigos e 720p ~4.
+- **Consumo do TURN do Cloudflare:** 1.000 GB/mês grátis. Tela 1080p30 com 3 pessoas assistindo gasta até
+  ~8 GB/hora (~120 h/mês); em 720p30 ~220 h/mês; só voz é quase nada.
 - **Arquivos enviados** ficam acessíveis por um link secreto e longo (não listável); trate como "quem tem o link vê".

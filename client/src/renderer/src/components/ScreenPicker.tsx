@@ -8,7 +8,10 @@ const PREFS_KEY = 'resenha.share'
 function loadPrefs(): ShareOptions {
   const fallback: ShareOptions = { quality: '1080p30', audio: true, hint: 'motion' }
   try {
-    return { ...fallback, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
+    const saved = { ...fallback, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
+    // qualidade salva de uma versão antiga (ex: 1080p60) que não existe mais
+    if (!(saved.quality in QUALITIES)) saved.quality = fallback.quality
+    return saved
   } catch {
     return fallback
   }

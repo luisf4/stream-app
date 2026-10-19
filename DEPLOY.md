@@ -27,7 +27,7 @@ Qualquer VPS com **Ubuntu 22.04/24.04 ou Debian 12**, **1 vCPU e 1–2 GB de RAM
 | Hetzner | CX22 | ~€4/mês | 20 TB de tráfego incluso, muito simples |
 | DigitalOcean / Vultr | 1 GB | ~US$6/mês | Tráfego menor incluso |
 
-**Tráfego:** uma transmissão 1080p60 usa ~4–7 Mbps **por espectador**. 3 amigos assistindo 3h por dia ≈ 300 GB/mês.
+**Tráfego:** uma transmissão 1080p 30fps usa ~4,5 Mbps **por espectador** (720p: ~2,5 Mbps). 3 amigos assistindo 3h por dia ≈ 200 GB/mês.
 
 Ao criar a VPS, escolha login por **chave SSH** (mais seguro) e anote o **IP público**.
 

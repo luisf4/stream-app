@@ -71,18 +71,15 @@ function withStartBitrate(sdp: string): string {
 import { reportVoiceState } from './socket'
 import { sounds } from './sounds'
 
-export type ShareQuality = '720p30' | '720p60' | '1080p30' | '1080p60' | '1440p60'
+export type ShareQuality = '1080p30' | '720p30'
 
 // A taxa vale por pessoa assistindo e sai do upload de quem hospeda o servidor.
 export const QUALITIES: Record<
   ShareQuality,
   { label: string; width: number; height: number; fps: number; bitrate: number }
 > = {
-  '720p30': { label: '720p 30fps · ~2,5 Mbps por amigo', width: 1280, height: 720, fps: 30, bitrate: 2_500_000 },
-  '720p60': { label: '720p 60fps · ~4 Mbps por amigo', width: 1280, height: 720, fps: 60, bitrate: 4_000_000 },
   '1080p30': { label: '1080p 30fps · ~4,5 Mbps por amigo', width: 1920, height: 1080, fps: 30, bitrate: 4_500_000 },
-  '1080p60': { label: '1080p 60fps · ~7 Mbps por amigo', width: 1920, height: 1080, fps: 60, bitrate: 7_000_000 },
-  '1440p60': { label: '1440p 60fps · ~10 Mbps por amigo', width: 2560, height: 1440, fps: 60, bitrate: 10_000_000 },
+  '720p30': { label: '720p 30fps · ~2,5 Mbps por amigo', width: 1280, height: 720, fps: 30, bitrate: 2_500_000 },
 }
 
 export interface ShareOptions {
