@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { formatSize, formatTime } from '../lib/format'
+import { optimizeImage } from '../lib/image'
 import { emit, request } from '../lib/socket'
 import type { Attachment, Message } from '../lib/types'
 import { showToast, useStore } from '../store'
@@ -28,6 +29,7 @@ export function ChatPanel({ channelId }: { channelId: string }) {
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [sending, setSending] = useState(false)
+  const [preparing, setPreparing] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [toDelete, setToDelete] = useState<Message | null>(null)
@@ -97,19 +99,28 @@ export function ChatPanel({ channelId }: { channelId: string }) {
 
   // ---------- envio ----------
 
-  const addFiles = (list: File[]) => {
-    const ok = list.filter((f) => {
-      if (f.size > maxUploadMb * 1024 * 1024) {
-        showToast(`"${f.name}" passa do limite de ${maxUploadMb} MB`)
-        return false
-      }
-      return true
-    })
-    setFiles((prev) => [...prev, ...ok].slice(0, 10))
+  const addFiles = async (list: File[]) => {
+    if (list.length === 0) return
+    setPreparing((n) => n + 1)
+    try {
+      const prepared = useStore.getState().settings.optimizeImages
+        ? await Promise.all(list.map(optimizeImage))
+        : list
+      const ok = prepared.filter((f) => {
+        if (f.size > maxUploadMb * 1024 * 1024) {
+          showToast(`"${f.name}" passa do limite de ${maxUploadMb} MB`)
+          return false
+        }
+        return true
+      })
+      setFiles((prev) => [...prev, ...ok].slice(0, 10))
+    } finally {
+      setPreparing((n) => n - 1)
+    }
   }
 
   const send = async () => {
-    if (sending || (!text.trim() && files.length === 0)) return
+    if (sending || preparing > 0 || (!text.trim() && files.length === 0)) return
     setSending(true)
     try {
       const attachments = await Promise.all(files.map((f) => api.upload(f)))
@@ -257,6 +268,8 @@ export function ChatPanel({ channelId }: { channelId: string }) {
         <div className="typing">
           {sending
             ? 'Enviando…'
+            : preparing > 0
+              ? 'Otimizando imagem…'
             : typers.length === 1
               ? `${typers[0]} está digitando…`
               : typers.length > 1

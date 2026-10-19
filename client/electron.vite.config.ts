@@ -6,5 +6,10 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 export default defineConfig({
   main: { plugins: [externalizeDepsPlugin()] },
   preload: { plugins: [externalizeDepsPlugin()] },
-  renderer: { plugins: [react()], build: { minify: true } },
+  renderer: {
+    plugins: [react()],
+    build: { minify: true },
+    // o modelo do RNNoise (.wasm) é embutido no bundle com "?inline" (ver lib/noise.ts)
+    assetsInclude: ['**/*.wasm'],
+  },
 })

@@ -1,6 +1,8 @@
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { startMicTest } from '../lib/noise'
 import { logout } from '../lib/session'
-import { switchDevice } from '../lib/voice'
+import type { NoiseMode } from '../lib/settings'
+import { setNoiseMode, switchDevice } from '../lib/voice'
 import { updateSettings, useStore } from '../store'
 import { LogOutIcon } from './Icons'
 import { Modal } from './Modal'
@@ -42,14 +44,20 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           onChange={(id) => switchDevice('videoinput', id)}
         />
       </div>
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={settings.noiseSuppression}
-          onChange={(e) => updateSettings({ noiseSuppression: e.target.checked })}
-        />
-        Supressão de ruído
-      </label>
+      <div className="settings-grid">
+        <label className="field">
+          <span>Supressão de ruído</span>
+          <select
+            value={settings.noiseMode}
+            onChange={(e) => setNoiseMode(e.target.value as NoiseMode)}
+          >
+            <option value="ai">Avançada (IA) — tira teclado, ventilador, barulho de rua</option>
+            <option value="basic">Padrão — filtro leve do navegador</option>
+            <option value="off">Desligada</option>
+          </select>
+        </label>
+        <MicTest />
+      </div>
       <label className="checkbox">
         <input
           type="checkbox"
@@ -66,7 +74,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         />
         Ajuste automático de volume do microfone
       </label>
-      <p className="hint">Essas três opções valem a partir da próxima vez que você entrar num canal.</p>
+      <p className="hint">
+        A supressão de ruído muda na hora. Eco e volume automático valem a partir da próxima vez que
+        você entrar num canal.
+      </p>
 
       <h3 className="settings-section">Atalhos globais (funcionam com o app em segundo plano)</h3>
       <div className="settings-grid">
@@ -81,6 +92,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           onChange={(deafen) => updateSettings({ shortcuts: { ...settings.shortcuts, deafen } })}
         />
       </div>
+
+      <h3 className="settings-section">Chat</h3>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={settings.optimizeImages}
+          onChange={(e) => updateSettings({ optimizeImages: e.target.checked })}
+        />
+        Otimizar imagens antes de enviar (bem menores, sem diferença visível; GIFs vão como estão)
+      </label>
 
       <h3 className="settings-section">App</h3>
       <label className="checkbox">
@@ -124,6 +145,65 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </button>
       </div>
     </Modal>
+  )
+}
+
+/** Ouve o próprio microfone (com o modo de supressão escolhido) para comparar. */
+function MicTest() {
+  const settings = useStore((s) => s.settings)
+  const [running, setRunning] = useState(false)
+  const [level, setLevel] = useState(0)
+  const [error, setError] = useState('')
+  const stopRef = useRef<(() => void) | null>(null)
+
+  const stop = () => {
+    stopRef.current?.()
+    stopRef.current = null
+    setRunning(false)
+  }
+
+  const start = async () => {
+    setError('')
+    try {
+      stopRef.current = await startMicTest(
+        {
+          deviceId: settings.inputDeviceId,
+          mode: settings.noiseMode,
+          echoCancellation: settings.echoCancellation,
+          autoGainControl: settings.autoGainControl,
+          outputDeviceId: settings.outputDeviceId,
+        },
+        setLevel,
+      )
+      setRunning(true)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  // troca de modo/microfone durante o teste: reinicia com a configuração nova
+  useEffect(() => {
+    if (!stopRef.current) return
+    stop()
+    void start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.noiseMode, settings.inputDeviceId])
+
+  useEffect(() => stop, [])
+
+  return (
+    <div className="field">
+      <span>Teste de microfone (use fone)</span>
+      <div className="mic-test">
+        <button type="button" className="btn ghost-outline" onClick={running ? stop : start}>
+          {running ? 'Parar' : 'Testar'}
+        </button>
+        <div className="mic-level">
+          <div style={{ width: `${Math.round(level * 100)}%` }} />
+        </div>
+      </div>
+      {error && <small className="error">{error}</small>}
+    </div>
   )
 }
 

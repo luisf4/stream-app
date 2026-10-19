@@ -1,8 +1,13 @@
+/** off = nada; basic = filtro do próprio WebRTC; ai = RNNoise (rede neural, bem mais forte) */
+export type NoiseMode = 'off' | 'basic' | 'ai'
+
 export interface Settings {
   inputDeviceId: string
   outputDeviceId: string
   videoDeviceId: string
-  noiseSuppression: boolean
+  noiseMode: NoiseMode
+  /** reduz e converte imagens para WebP antes de enviar no chat */
+  optimizeImages: boolean
   echoCancellation: boolean
   autoGainControl: boolean
   shortcuts: { mute: string; deafen: string }
@@ -20,7 +25,8 @@ export const defaultSettings: Settings = {
   inputDeviceId: 'default',
   outputDeviceId: 'default',
   videoDeviceId: '',
-  noiseSuppression: true,
+  noiseMode: 'ai',
+  optimizeImages: true,
   echoCancellation: true,
   autoGainControl: true,
   shortcuts: { mute: 'Ctrl+Shift+M', deafen: 'Ctrl+Shift+D' },

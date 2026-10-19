@@ -2,14 +2,17 @@ import {
   AudioPresets,
   Room,
   RoomEvent,
+  setLogLevel,
   Track,
   VideoPresets,
+  type LocalAudioTrack,
   type RemoteTrack,
   type RemoteTrackPublication,
   type RemoteParticipant,
 } from 'livekit-client'
-import { setLogLevel } from 'livekit-client'
 import { showToast, updateSettings, useStore } from '../store'
+import { noiseAudioContext, RnnoiseProcessor } from './noise'
+import type { NoiseMode } from './settings'
 
 // No modo de desenvolvimento, mostra no console cada passo da conexão de voz.
 if (import.meta.env.DEV) setLogLevel('debug')
@@ -208,7 +211,8 @@ export async function joinVoice(channelId: string) {
       dynacast: true,
       audioCaptureDefaults: {
         deviceId: settings.inputDeviceId || undefined,
-        noiseSuppression: settings.noiseSuppression,
+        // no modo "ai" o RNNoise faz o trabalho; o filtro do WebRTC junto só piora a voz
+        noiseSuppression: settings.noiseMode === 'basic',
         echoCancellation: settings.echoCancellation,
         autoGainControl: settings.autoGainControl,
       },
@@ -273,6 +277,7 @@ export async function joinVoice(channelId: string) {
   if (!muted && !deafened) {
     try {
       await r.localParticipant.setMicrophoneEnabled(true)
+      await applyNoiseFilter()
     } catch (err) {
       set({ muted: true })
       showToast(`Microfone indisponível: ${errorText(err)}`)
@@ -297,9 +302,53 @@ export async function leaveVoice(silent = false) {
 async function setMic(enabled: boolean) {
   try {
     await room?.localParticipant.setMicrophoneEnabled(enabled)
+    if (enabled) await applyNoiseFilter()
   } catch (err) {
     showToast(`Microfone indisponível: ${errorText(err)}`)
   }
+}
+
+function micTrack(): LocalAudioTrack | undefined {
+  return room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.track as
+    | LocalAudioTrack
+    | undefined
+}
+
+/** Liga ou desliga o RNNoise no microfone conforme a configuração. */
+async function applyNoiseFilter() {
+  const track = micTrack()
+  if (!track) return
+  const want = get().settings.noiseMode === 'ai'
+  const active = track.getProcessor()?.name === 'rnnoise'
+  try {
+    if (want && !active) {
+      await track.setAudioContext(noiseAudioContext())
+      await track.setProcessor(new RnnoiseProcessor())
+    } else if (!want && active) {
+      await track.stopProcessor()
+    }
+  } catch (err) {
+    showToast(`Supressão de ruído indisponível: ${errorText(err)}`)
+  }
+}
+
+/** Troca o modo de supressão de ruído na hora, mesmo no meio de uma chamada. */
+export async function setNoiseMode(mode: NoiseMode) {
+  updateSettings({ noiseMode: mode })
+  const track = micTrack()
+  if (!track) return
+  try {
+    // o filtro do WebRTC é uma configuração da captura: precisa reabrir o microfone
+    await track.restartTrack({
+      deviceId: get().settings.inputDeviceId || undefined,
+      noiseSuppression: mode === 'basic',
+      echoCancellation: get().settings.echoCancellation,
+      autoGainControl: get().settings.autoGainControl,
+    })
+  } catch (err) {
+    showToast(`Não foi possível reabrir o microfone: ${errorText(err)}`)
+  }
+  await applyNoiseFilter()
 }
 
 export async function toggleMute() {

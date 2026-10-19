@@ -1057,6 +1057,32 @@ a {
   gap: 0 16px;
 }
 
+.mic-test {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.btn.ghost-outline {
+  border: 1px solid var(--bg-active);
+  background: var(--bg-0);
+  padding: 9px 16px;
+}
+.btn.ghost-outline:hover {
+  background: var(--bg-hover);
+}
+.mic-level {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-0);
+  overflow: hidden;
+}
+.mic-level > div {
+  height: 100%;
+  background: var(--success);
+  transition: width 0.05s linear;
+}
+
 .toast {
   position: fixed;
   bottom: 24px;

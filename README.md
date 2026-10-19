@@ -4,10 +4,10 @@ Repositório: https://github.com/luisf4/stream-app
 
 "Discord caseiro" para você e seus amigos: **um servidor só**, alguns **canais de voz**, e em cada canal:
 
-- 🎙️ voz (com supressão de ruído, mutar/ensurdecer, volume por pessoa, atalhos globais)
+- 🎙️ voz (com supressão de ruído por IA, mutar/ensurdecer, volume por pessoa, atalhos globais)
 - 🖥️ compartilhamento de tela **com o áudio do PC** (até 1440p 60fps)
 - 📷 webcam
-- 💬 chat de texto com histórico, imagens, vídeos e arquivos (colar print com Ctrl+V ou arrastar)
+- 💬 chat de texto com histórico, imagens (otimizadas antes de enviar), vídeos e arquivos (colar print com Ctrl+V ou arrastar)
 
 ```
 client/             App Windows (Electron + React)
@@ -30,6 +30,10 @@ que roda junto com o servidor: cada pessoa envia o vídeo uma vez e ele distribu
 - [x] **App Windows (Electron)**: voz com mutar/ensurdecer, volume por pessoa, indicador de quem fala,
       atalhos globais, bandeja, notificações e sons
 - [x] **Compartilhar tela com áudio do PC**, webcam e palco de vídeo (focar / tela cheia)
+- [x] **Supressão de ruído com IA (RNNoise)**, rodando no próprio PC: tira ventilador, teclado e barulho
+      de fundo; dá para trocar na hora e testar o microfone em Configurações
+- [x] **Imagens otimizadas antes de enviar** (até 2560 px, WebP): um print 4K de 9 MB vira ~0,5 MB
+- [x] **Entrada na voz em ~2 s** pelo TURN do Cloudflare (antes demorava 15-25 s ou falhava)
 - [x] **Instalador `.exe`** (`npm run dist`, ~82 MB)
 - [x] **Endereço e senha embutidos no build** via `client/.env` — os amigos só digitam o apelido
 - [x] **Deploy com portas abertas** (`deploy/`): Caddy com HTTPS automático, `sslip.io` e DuckDNS opcional
