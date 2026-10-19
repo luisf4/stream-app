@@ -50,6 +50,11 @@ export class RnnoiseProcessor implements TrackProcessor<Track.Kind.Audio, AudioP
     if (ctx.state === 'suspended') await ctx.resume()
     this.source = ctx.createMediaStreamSource(new MediaStream([track]))
     this.node = new RnnoiseWorkletNode(ctx, { wasmBinary: binary, maxChannels: 1 })
+    // O RNNoise processa só 1 canal: com microfone estéreo o canal direito saía mudo (som só no
+    // fone esquerdo). Misturando a entrada para mono, a saída é mono e toca igual nos dois lados.
+    this.node.channelCount = 1
+    this.node.channelCountMode = 'explicit'
+    this.node.channelInterpretation = 'speakers'
     this.destination = ctx.createMediaStreamDestination()
     this.source.connect(this.node).connect(this.destination)
     this.processedTrack = this.destination.stream.getAudioTracks()[0]
