@@ -1,75 +1,160 @@
 # Resenha
 
-Repositório: https://github.com/luisf4/stream-app
+**A self-hosted, Discord-style voice, video and screen-sharing app for a small group of friends.**
 
-"Discord caseiro" para você e seus amigos: **um servidor só**, alguns **canais de voz**, e em cada canal:
+One server, a few voice channels, and inside each channel: voice chat, screen sharing with system audio,
+webcams and a text chat with history and file uploads. It ships as a lightweight Windows installer and
+the whole backend runs on a single home server (a Proxmox LXC container), **without opening a single port
+on the home router** and without paying for media infrastructure.
 
-- 🎙️ voz (com supressão de ruído por IA, mutar/ensurdecer, volume por pessoa, atalhos globais)
-- 🖥️ compartilhamento de tela **com o áudio do PC** (1080p ou 720p a 30fps)
-- 📷 webcam
-- 💬 chat de texto com histórico, imagens (otimizadas antes de enviar), vídeos e arquivos (colar print com Ctrl+V ou arrastar)
-
-```
-client/             App Windows (Electron + React)
-server/             API + chat em tempo real (Node + Fastify + Socket.IO + SQLite)
-deploy/             VPS/servidor com portas abertas (servidor + LiveKit + Caddy com HTTPS)
-deploy/cloudflare/  Servidor em casa SEM abrir portas (Cloudflare Tunnel + TURN do Cloudflare)
-```
-
-A mídia (voz/vídeo/tela) passa pelo [LiveKit](https://livekit.io), um servidor WebRTC open source
-que roda junto com o servidor: cada pessoa envia o vídeo uma vez e ele distribui para os outros.
+> *"Resenha"* is Brazilian slang for hanging out and chatting with friends.
 
 ---
 
-## Progresso
+## Features
 
-### Feito
+**Voice & video**
+- Voice channels with mute / deafen, speaking indicators and global hotkeys (work while the app is in the background)
+- **AI noise suppression** (RNNoise, running locally in an AudioWorklet): removes fans, keyboards and street noise,
+  switchable live during a call, with a built-in mic test
+- **Per-user volume from 0 to 200%**, separately for voice and screen-share audio, saved locally per nickname
+- Webcam and **screen sharing with system audio**, 1080p or 720p at 30 fps
+- Video stage with focus mode, fullscreen and a **live stats overlay** (resolution, fps, bitrate, codec,
+  hardware vs. CPU encoding, what is limiting quality, connection type, RTT, packet loss)
 
-- [x] **Servidor**: login com senha do servidor + apelido, canais (criar/renomear/apagar), chat com
-      histórico em SQLite, envio de arquivos, presença de quem está em cada canal de voz
-- [x] **App Windows (Electron)**: voz com mutar/ensurdecer, volume por pessoa, indicador de quem fala,
-      atalhos globais, bandeja, notificações e sons
-- [x] **Compartilhar tela com áudio do PC**, webcam e palco de vídeo (focar / tela cheia)
-- [x] **Supressão de ruído com IA (RNNoise)**, rodando no próprio PC: tira ventilador, teclado e barulho
-      de fundo; dá para trocar na hora e testar o microfone em Configurações
-- [x] **Imagens otimizadas antes de enviar** (até 2560 px, WebP): um print 4K de 9 MB vira ~0,5 MB
-- [x] **Entrada na voz em ~2 s** pelo TURN do Cloudflare (antes demorava 15-25 s ou falhava)
-- [x] **Instalador `.exe`** (`npm run dist`, ~82 MB)
-- [x] **Endereço e senha embutidos no build** via `client/.env` — os amigos só digitam o apelido
-- [x] **Deploy com portas abertas** (`deploy/`): Caddy com HTTPS automático, `sslip.io` e DuckDNS opcional
-- [x] **Deploy em casa sem abrir portas** (`deploy/cloudflare/`): Cloudflare Tunnel + TURN do Cloudflare
-- [x] **TURN do Cloudflare testado**: a voz conectou com o LiveKit atrás do roteador, sem nenhuma porta aberta
-- [x] **Reinício automático do LiveKit quando o IP de casa muda** (`deploy/cloudflare/ip-watch.sh`)
-- [x] **Container LXC criado no Proxmox** com Docker (nesting + keyctl)
-- [x] **Cloudflare Tunnel criado e conectado**
-- [x] **Rotas do túnel**: `resenha.resenhalive.stream` → `http://localhost:3000` e `voz.resenhalive.stream` → `http://localhost:7880`
-- [x] **Código no GitHub** ([luisf4/stream-app](https://github.com/luisf4/stream-app))
-- [x] **Servidor rodando no Proxmox** pelo `deploy/cloudflare/install.sh`
-- [x] **Instalador gerado** com o endereço e a senha embutidos (pede só o apelido)
-- [x] **Login funcionando de dois PCs**, incluindo um amigo de fora (com VPN desligada)
+**Chat**
+- Text chat per channel with persistent history, typing indicators and desktop notifications
+- Paste screenshots (Ctrl+V) or drag & drop files; inline previews for images and videos
+- **Images are optimized client-side before upload** (max 2560 px, WebP): a 9.1 MB 4K PNG becomes ~480 KB
 
-### Falta
+**Desktop app**
+- Electron app with a custom screen/window picker, system tray, sounds and notifications
+- The server address and password are baked in at build time, so friends only type a nickname
+- One-click NSIS installer
 
-- [ ] Testar voz e tela 1080p com os amigos e olhar o consumo no painel do TURN
-- [ ] Conferir se o áudio da tela não leva a voz dos amigos junto (eco); se levar, criar o módulo nativo
-      que exclui o próprio app da captura
-- [ ] Gerar **tokens novos** do túnel e do TURN no painel do Cloudflare (os atuais passaram pelo chat) e
-      atualizar no `.env` do servidor
+**Self-hosting**
+- One script installs everything with Docker Compose
+- Two deployment modes: a regular VPS with open ports, or a **home server behind NAT with no open ports**
 
 ---
 
-## 1. Rodar no seu PC (para testar)
+## Architecture
 
-Precisa do **Node.js 22.13+** (recomendado 24 LTS): https://nodejs.org
+```mermaid
+flowchart LR
+  subgraph Clients["Windows clients (Electron + React)"]
+    A[Friend A]
+    B[Friend B]
+  end
 
-**a) LiveKit** — baixe o `livekit_<versão>_windows_amd64.zip` em
-https://github.com/livekit/livekit/releases e extraia em `tools/livekit/`. Na raiz do projeto:
+  subgraph CF["Cloudflare (free tier)"]
+    T[Tunnel<br/>HTTPS / WebSocket]
+    R[TURN relay<br/>Realtime]
+  end
+
+  subgraph Home["Home server · Proxmox LXC · Docker"]
+    CD[cloudflared]
+    APP[app server<br/>Fastify + Socket.IO + SQLite]
+    LK[LiveKit SFU]
+  end
+
+  A & B -- "login, chat, signaling" --> T --> CD
+  CD --> APP
+  CD --> LK
+  A & B <-- "audio / video (UDP)" --> R <--> LK
+  APP -. "LiveKit tokens +<br/>TURN credentials" .-> A & B
+```
+
+| Component | Role |
+|---|---|
+| **Client** (`client/`) | Electron + React + TypeScript. Voice/video through `livekit-client`, real-time chat through Socket.IO, state in Zustand. |
+| **App server** (`server/`) | Node + Fastify + Socket.IO + SQLite (`node:sqlite`). Password + nickname login (JWT), channels, messages, uploads, voice presence, LiveKit access tokens and short-lived Cloudflare TURN credentials. |
+| **LiveKit** | Open-source WebRTC SFU: every participant uploads their stream once and the server forwards it to the others. |
+| **Cloudflare Tunnel** | Exposes the app server and LiveKit signaling over HTTPS through an *outbound* connection, so the router needs no port forwarding (it even works behind CGNAT). |
+| **Cloudflare TURN** | Relays the UDP media that the HTTP tunnel can't carry. Clients connect to the relay, and LiveKit reaches the relay from inside the home network. |
+
+When a client is on the **same LAN as the server**, it connects to LiveKit directly instead of going out to
+Cloudflare and back, so a streamer at home doesn't spend the home upload bandwidth on their own stream.
+
+---
+
+## Engineering highlights
+
+Some of the more interesting problems solved along the way:
+
+- **Media behind a NAT with no open ports.** An HTTP tunnel can't carry WebRTC media, so all media goes through a
+  TURN relay. The server asks Cloudflare's API for short-lived TURN credentials and hands them to the client
+  together with the LiveKit token.
+
+- **A race condition that made joining voice take 15–25 s.** LiveKit's first connectivity checks reached the TURN
+  relay *before* the client had created the relay permission for the server's IP. The relay dropped them, so the
+  home router never opened the return path, and the next attempt only came 10–15 s later. Holding the client's
+  ICE candidates back for 1.5 s (via a small `RTCPeerConnection` subclass) lets the permission exist first.
+  **Joining now takes ~2 s.**
+
+- **Wrong public-IP mapping inside Docker.** LiveKit sometimes mapped the public IP onto a Docker bridge interface
+  instead of the LAN interface, which silently broke the TURN path. Restricting advertised IPs to the LAN ranges
+  fixed it, and a watchdog script (`ip-watch.sh`) restarts LiveKit when the home IP changes or the advertised
+  mapping is wrong.
+
+- **Screen sharing capped at 2.5 Mbps / 15 fps.** LiveKit reads `screenShareEncoding` (not `videoEncoding`) for
+  screen tracks, so the configured bitrate was ignored and WebRTC's default cap applied. On top of that, WebRTC's
+  bandwidth estimator starts at ~300 kbps, which made every stream start at 320×180 for almost a minute. Injecting
+  `x-google-start-bitrate` into the SDP fixed it: **1080p from the first second, ~50 fps on a synthetic 60 fps
+  test source**.
+
+- **RNNoise inside an Electron app served from `file://`.** `fetch()` of local files is blocked there, so the WASM
+  model is inlined as a data URL and the AudioWorklet is loaded from a Blob URL (with a matching CSP). In a
+  production build, it measured a **54 dB reduction** on synthetic fan noise. A bug where noise suppression played
+  only in the left ear (RNNoise processes one channel; stereo mics left the right channel silent) was fixed by
+  down-mixing the input to mono.
+
+- **Per-user volume above 100%.** `HTMLMediaElement.volume` maxes out at 1.0. Up to 100% the app uses the audio
+  element, which keeps the browser's echo cancellation working. Above 100% it switches that user to a Web Audio
+  `GainNode`.
+
+- **TCP vs UDP relays.** When TCP/TLS TURN candidates won the ICE race, video stuttered on every lost packet. The
+  first connection attempt now offers UDP relays only, and TCP/TLS are kept as a fallback for networks that block UDP.
+
+---
+
+## Tech stack
+
+**Client:** Electron 38, React 19, TypeScript, Vite (electron-vite), livekit-client, Socket.IO client, Zustand,
+RNNoise (`@sapphi-red/web-noise-suppressor`), electron-builder
+
+**Server:** Node 24, Fastify 5, Socket.IO, SQLite (`node:sqlite`), JSON Web Tokens, livekit-server-sdk
+
+**Infrastructure:** LiveKit SFU, Docker Compose, Cloudflare Tunnel, Cloudflare Realtime TURN, Caddy (HTTPS for the
+open-ports mode), Proxmox LXC
+
+---
+
+## Project structure
+
+```
+client/                Windows app (Electron + React)
+  src/main/            Electron main process: window, tray, screen picker, global shortcuts
+  src/preload/         Safe IPC bridge
+  src/renderer/        React UI
+    src/lib/voice.ts   LiveKit: join/leave, mic, camera, screen share, volumes, NAT workarounds
+    src/lib/noise.ts   RNNoise processor and mic test
+    src/lib/image.ts   Client-side image optimization
+server/                App server (Fastify + Socket.IO + SQLite)
+deploy/                VPS / open-ports mode: app + LiveKit + Caddy (automatic HTTPS)
+deploy/cloudflare/     Home-server mode: app + LiveKit + cloudflared, no open ports
+```
+
+---
+
+## Running locally
+
+Requires **Node.js 22.13+** (24 LTS recommended) and the LiveKit server binary
+([releases](https://github.com/livekit/livekit/releases)) extracted to `tools/livekit/`.
 
 ```bash
 tools\livekit\livekit-server.exe --dev --config deploy\livekit.yaml
 ```
-
-**b) Servidor**
 
 ```bash
 cd server
@@ -77,19 +162,13 @@ npm install
 npm run dev
 ```
 
-Para testar com o TURN do Cloudflare, crie `server/.env` com `CLOUDFLARE_TURN_KEY_ID` e
-`CLOUDFLARE_TURN_API_TOKEN` (sem eles, a voz conecta direto, como numa rede local).
-
-**c) App**
-
 ```bash
 cd client
 npm install
 npm run dev
 ```
 
-No app, use o endereço `localhost:3000` e a senha `amigos`.
-Para testar com duas pessoas no mesmo PC, abra uma segunda instância com outro login:
+Log in with server address `localhost:3000` and password `amigos`. To simulate a second user on the same machine:
 
 ```bash
 npm run dev:2
@@ -97,73 +176,35 @@ npm run dev:2
 
 ---
 
-## 2. Hospedar
+## Deploying
 
-| Onde | Guia |
-|------|------|
-| **Servidor em casa (Proxmox) sem abrir portas** — Cloudflare Tunnel + TURN do Cloudflare | **[DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md)** |
-| VPS ou servidor com portas abertas — LiveKit próprio, sem limite de uso | [DEPLOY.md](DEPLOY.md) |
+| Mode | Guide |
+|---|---|
+| **Home server, no open ports** (Proxmox + Cloudflare Tunnel + Cloudflare TURN) | [DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md) |
+| **VPS or server with open ports** (self-hosted LiveKit, automatic HTTPS with Caddy) | [DEPLOY.md](DEPLOY.md) |
 
-**Atualizar o servidor** depois de mudar o código (no servidor, dentro da pasta do deploy usado):
+Both guides are written in Portuguese. Each mode has an `install.sh` that installs Docker, asks for the server
+password and credentials, generates the secrets and starts the stack.
 
-```bash
-git pull
-docker compose up -d --build
-```
-
-Mensagens e arquivos ficam na pasta `data/` do deploy — faça backup dela.
-
----
-
-## 3. Gerar o instalador `.exe`
-
-Para os amigos só digitarem o apelido, antes do build copie `client/.env.example`
-para `client/.env` e preencha `VITE_SERVER_URL` e `VITE_SERVER_PASSWORD`
-(detalhes no [DEPLOY.md](DEPLOY.md#6-configurar-o-app-com-o-seu-servidor-antes-do-build)).
+To build the Windows installer with the server address embedded, copy `client/.env.example` to `client/.env`,
+fill in `VITE_SERVER_URL` and `VITE_SERVER_PASSWORD`, and run:
 
 ```bash
 cd client
 npm run dist
 ```
 
-O instalador sai em `client/dist/Resenha-Setup-1.0.0.exe`. Mande para os amigos.
-Como o app não é assinado digitalmente, o Windows pode mostrar "O Windows protegeu o computador":
-clique em **Mais informações → Executar assim mesmo**.
+All secrets (`.env` files) are git-ignored; only `*.env.example` templates are committed.
 
 ---
 
-## Segredos fora do Git
+## Limitations
 
-Os arquivos com senha e tokens **não vão para o repositório** (estão no `.gitignore`):
-
-| Arquivo | Contém |
-|---------|--------|
-| `server/.env` | credenciais do TURN para testes locais |
-| `client/.env` | endereço e senha do servidor embutidos no app |
-| `deploy/.env`, `deploy/cloudflare/.env` | senha, chaves do LiveKit, token do túnel e do TURN |
-
-Só os modelos `*.env.example` são versionados. Como cada `.env` chega no lugar certo (incluindo enviar
-o do servidor para o container do Proxmox) está em
-[DEPLOY-PROXMOX.md → Os arquivos `.env`](DEPLOY-PROXMOX.md#os-arquivos-env-não-vão-pelo-github).
-
----
-
-## Como usar
-
-- **Clique** num canal para ver o chat e quem está nele; **duplo clique** (ou "Entrar no canal") entra na voz.
-- **Clique direito** num canal: renomear/apagar. Clique direito num amigo na voz: volume dele.
-- Clique num vídeo para **focar**, duplo clique para **tela cheia**.
-- Atalhos globais padrão: **Ctrl+Shift+M** (mutar) e **Ctrl+Shift+D** (ensurdecer) — mude em Configurações.
-- Fechar a janela deixa o app na bandeja (dá pra desligar em Configurações).
-
-## Observações
-
-- **Áudio da tela:** o app pede ao Windows para não capturar o som do próprio Resenha (a voz dos amigos),
-  mas isso depende da versão do Chromium/Windows. Se alguém ouvir eco da própria voz quando você transmite
-  com áudio, o próximo passo é um pequeno módulo nativo que exclui o processo do app da captura
-  (é o que o Discord faz).
-- **Qualidade da transmissão:** 1080p 30fps (~4,5 Mbps por amigo assistindo) ou 720p 30fps (~2,5 Mbps).
-  Tudo sai do upload de quem hospeda o servidor: com 13 Mbps de upload, 1080p atende ~2 amigos e 720p ~4.
-- **Consumo do TURN do Cloudflare:** 1.000 GB/mês grátis. Tela 1080p30 com 3 pessoas assistindo gasta até
-  ~8 GB/hora (~120 h/mês); em 720p30 ~220 h/mês; só voz é quase nada.
-- **Arquivos enviados** ficam acessíveis por um link secreto e longo (não listável); trate como "quem tem o link vê".
+- **Bandwidth:** the SFU runs at home, so every viewer's copy of a stream leaves through the home upload
+  (~4.5 Mbps per viewer at 1080p30, ~2.5 Mbps at 720p30).
+- **TURN quota:** Cloudflare's free tier covers 1,000 GB/month of relayed media, which is plenty for voice and
+  several hours of screen sharing per day.
+- **System audio capture:** the app asks Chromium to exclude its own audio from the loopback capture. Depending on
+  the Windows/Chromium version, other participants' voices could leak into a shared stream. The planned fix is a
+  native module using Windows' process-loopback exclusion.
+- **Windows only** for now, and the installer is not code-signed.
