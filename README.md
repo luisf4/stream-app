@@ -139,7 +139,9 @@ Os arquivos com senha e tokens **não vão para o repositório** (estão no `.gi
 | `client/.env` | endereço e senha do servidor embutidos no app |
 | `deploy/.env`, `deploy/cloudflare/.env` | senha, chaves do LiveKit, token do túnel e do TURN |
 
-Só os modelos `*.env.example` são versionados.
+Só os modelos `*.env.example` são versionados. Como cada `.env` chega no lugar certo (incluindo enviar
+o do servidor para o container do Proxmox) está em
+[DEPLOY-PROXMOX.md → Os arquivos `.env`](DEPLOY-PROXMOX.md#os-arquivos-env-não-vão-pelo-github).
 
 ---
 

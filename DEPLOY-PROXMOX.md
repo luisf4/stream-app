@@ -152,6 +152,51 @@ Responda:
 O instalador instala o Docker, gera as chaves do LiveKit, sobe `app`, `livekit` e `cloudflared`
 e agenda o `ip-watch.sh`, que reinicia o LiveKit sozinho se o IP da sua casa mudar.
 
+### Os arquivos `.env` (não vão pelo GitHub)
+
+Os `.env` guardam senhas e tokens, por isso ficam fora do Git. Cada um vive num lugar:
+
+| Arquivo | Onde fica | Como chega lá |
+|---------|-----------|---------------|
+| `deploy/cloudflare/.env` | **no container** | o `install.sh` cria a partir das suas respostas (forma recomendada) **ou** você envia um pronto (abaixo) |
+| `client/.env` | **no seu PC** | você cria a partir do `client/.env.example`; é usado só na hora de gerar o `.exe` |
+| `server/.env` | **no seu PC** | só para testes locais; não precisa ir para o servidor |
+
+**Se preferir mandar o `deploy/cloudflare/.env` pronto** em vez de responder às perguntas
+(o `install.sh` pula as perguntas quando o arquivo já existe):
+
+1. No seu PC, copie o modelo e preencha todos os valores (gere `JWT_SECRET` e `LIVEKIT_API_SECRET`
+   com textos aleatórios de 32+ caracteres):
+
+   ```bash
+   copy deploy\cloudflare\.env.example deploy\cloudflare\.env
+   ```
+
+2. Envie para o host Proxmox (PowerShell, na pasta do projeto):
+
+   ```bash
+   scp deploy\cloudflare\.env root@IP_DO_PROXMOX:/root/resenha.env
+   ```
+
+3. No **shell do Proxmox**, coloque dentro do container (troque `101` pelo ID) e apague a cópia do host:
+
+   ```
+   pct push 101 /root/resenha.env /root/resenha/deploy/cloudflare/.env --perms 600 && rm /root/resenha.env
+   ```
+
+4. No container, rode o `bash install.sh` normalmente.
+
+**Alternativa sem `scp`:** no console do container, abra o editor e cole o conteúdo:
+
+```bash
+nano /root/resenha/deploy/cloudflare/.env
+```
+
+(cole com o botão direito, salve com `Ctrl+O`, `Enter`, e saia com `Ctrl+X`; depois `chmod 600 .env`)
+
+> Guarde uma cópia do `deploy/cloudflare/.env` do servidor num lugar seguro (gerenciador de senhas):
+> se perder o container, é com ele que você restaura tudo junto com a pasta `data/`.
+
 ### Conferir
 
 ```bash
