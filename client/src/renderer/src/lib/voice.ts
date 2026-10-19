@@ -8,7 +8,33 @@ import {
   type RemoteTrackPublication,
   type RemoteParticipant,
 } from 'livekit-client'
+import { setLogLevel } from 'livekit-client'
 import { showToast, updateSettings, useStore } from '../store'
+
+// No modo de desenvolvimento, mostra no console cada passo da conexão de voz.
+if (import.meta.env.DEV) setLogLevel('debug')
+
+// Com o LiveKit atrás de um roteador sem portas abertas, a mídia só passa se o LiveKit mandar o
+// primeiro pacote para o TURN do Cloudflare (isso libera a volta no roteador). Mas o TURN descarta
+// esse pacote se chegar antes de o app pedir a "permissão" para o IP do servidor — e aí o LiveKit
+// só tenta de novo uns 10–15 s depois. Segurando por um instante o envio dos nossos candidatos ao
+// LiveKit, o app cria a permissão primeiro e a conexão fecha em 1–3 s.
+const CANDIDATE_DELAY_MS = 1500
+let delayCandidates = false
+{
+  const NativePC = window.RTCPeerConnection
+  window.RTCPeerConnection = class extends NativePC {
+    set onicecandidate(handler: ((ev: RTCPeerConnectionIceEvent) => void) | null) {
+      super.onicecandidate =
+        handler && delayCandidates
+          ? (ev) => setTimeout(() => handler.call(this, ev), CANDIDATE_DELAY_MS)
+          : handler
+    }
+    get onicecandidate() {
+      return super.onicecandidate
+    }
+  }
+}
 import { reportVoiceState } from './socket'
 import { sounds } from './sounds'
 
@@ -32,6 +58,8 @@ export interface ShareOptions {
 }
 
 let room: Room | null = null
+/** tentativa de conexão em andamento (ainda não é a sala "oficial") */
+let joining: Room | null = null
 let mutedBeforeDeafen = false
 
 interface AudioEntry {
@@ -134,7 +162,8 @@ function wire(r: Room) {
     })
     .on(RoomEvent.MediaDevicesError, (err) => showToast(`Erro no dispositivo: ${errorText(err)}`))
     .on(RoomEvent.Disconnected, () => {
-      if (room !== r) return // saída intencional
+      // saída intencional, ou uma tentativa de conexão que falhou (joinVoice tenta de novo)
+      if (room !== r || joining === r) return
       cleanup()
       showToast('Você foi desconectado da voz')
       reportVoiceState()
@@ -173,42 +202,71 @@ export async function joinVoice(channelId: string) {
   await leaveVoice(true)
 
   set({ voiceChannelId: channelId, voiceStatus: 'connecting', speaking: [] })
-  const r = new Room({
-    adaptiveStream: true,
-    dynacast: true,
-    audioCaptureDefaults: {
-      deviceId: settings.inputDeviceId || undefined,
-      noiseSuppression: settings.noiseSuppression,
-      echoCancellation: settings.echoCancellation,
-      autoGainControl: settings.autoGainControl,
-    },
-    videoCaptureDefaults: {
-      deviceId: settings.videoDeviceId || undefined,
-      resolution: VideoPresets.h720.resolution,
-    },
-    publishDefaults: { dtx: true, red: true },
-  })
-  room = r
-  wire(r)
+  const createRoom = () =>
+    new Room({
+      adaptiveStream: true,
+      dynacast: true,
+      audioCaptureDefaults: {
+        deviceId: settings.inputDeviceId || undefined,
+        noiseSuppression: settings.noiseSuppression,
+        echoCancellation: settings.echoCancellation,
+        autoGainControl: settings.autoGainControl,
+      },
+      videoCaptureDefaults: {
+        deviceId: settings.videoDeviceId || undefined,
+        resolution: VideoPresets.h720.resolution,
+      },
+      publishDefaults: { dtx: true, red: true },
+    })
 
+  let r: Room | null = null
+  let lastError: unknown
   try {
     const { url, token, iceServers } = await api.livekitToken(channelId)
-    // Com TURN configurado no servidor (Cloudflare Tunnel, sem portas abertas),
-    // a mídia só consegue chegar ao LiveKit pelo retransmissor.
-    await r.connect(
-      url,
-      token,
-      iceServers?.length ? { rtcConfig: { iceServers, iceTransportPolicy: 'relay' } } : undefined,
-    )
-  } catch (err) {
-    if (room === r) {
-      cleanup()
-      showToast(`Não foi possível entrar na voz: ${errorText(err)}`)
+    // Com TURN configurado no servidor (Cloudflare Tunnel, sem portas abertas), a mídia só chega
+    // ao LiveKit pelo retransmissor (ver CANDIDATE_DELAY_MS). Se a 1ª tentativa ainda assim não
+    // fechar em 8 s, tentamos de novo em vez de esperar os 15 s padrão.
+    const relay = !!iceServers?.length
+    delayCandidates = relay
+    const timeouts = relay ? [8_000, 15_000] : [15_000]
+
+    for (const timeout of timeouts) {
+      if (get().voiceChannelId !== channelId) return // saiu/trocou enquanto conectava
+      const attempt = createRoom()
+      room = attempt
+      joining = attempt
+      wire(attempt)
+      try {
+        await attempt.connect(url, token, {
+          peerConnectionTimeout: timeout,
+          ...(relay ? { rtcConfig: { iceServers: iceServers!, iceTransportPolicy: 'relay' } } : {}),
+        })
+        r = attempt
+        lastError = undefined
+        break
+      } catch (err) {
+        lastError = err
+        await attempt.disconnect()
+      } finally {
+        if (joining === attempt) joining = null
+      }
     }
-    r.disconnect()
+  } catch (err) {
+    lastError = err
+  }
+
+  if (!r) {
+    if (get().voiceChannelId === channelId) {
+      cleanup()
+      showToast(`Não foi possível entrar na voz: ${errorText(lastError)}`)
+    }
     return
   }
-  if (room !== r) return // saiu/trocou enquanto conectava
+  if (room !== r) {
+    // saiu/trocou enquanto conectava
+    void r.disconnect()
+    return
+  }
 
   set({ voiceStatus: 'connected' })
   const { muted, deafened } = get()

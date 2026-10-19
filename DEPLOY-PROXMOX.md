@@ -150,7 +150,8 @@ Responda:
 | Turn Token ID / API Token | os valores do passo 2 |
 
 O instalador instala o Docker, gera as chaves do LiveKit, sobe `app`, `livekit` e `cloudflared`
-e agenda o `ip-watch.sh`, que reinicia o LiveKit sozinho se o IP da sua casa mudar.
+e agenda o `ip-watch.sh`, que reinicia o LiveKit sozinho se o IP da sua casa mudar ou se o LiveKit
+não estiver anunciando o IP certo.
 
 ### Os arquivos `.env` (não vão pelo GitHub)
 
@@ -268,8 +269,9 @@ O uso do TURN aparece no painel do Cloudflare em **Realtime → TURN Server**.
 | Túnel aparece **DOWN** / **INACTIVE** | Token errado ou sem internet | `docker compose logs cloudflared`; corrija `CLOUDFLARE_TUNNEL_TOKEN` no `.env` e `docker compose up -d` |
 | Erro **502 Bad Gateway** | Public Hostname apontando errado | `resenha` → `localhost:3000` e `voz` → `localhost:7880`, ambos tipo `HTTP` |
 | Ao entrar na voz: "Falha ao preparar a conexão de voz (TURN)" | Turn Token ID ou API Token errados | Veja `docker compose logs app`; corrija `CLOUDFLARE_TURN_*` no `.env` e `docker compose up -d` |
-| Voz fica em "Conectando…" e cai | O LiveKit não descobriu o IP público da casa, ou o roteador bloqueia UDP de saída | Em `docker compose logs livekit`, a linha `using external IPs` deve mostrar o seu IP público (ex: `179.x.x.x/192.168.x.x`); se não mostrar, `docker compose restart livekit` |
-| A voz parou depois que a internet caiu e voltou | O IP de casa mudou | O `ip-watch.sh` reinicia o LiveKit sozinho em até 2 minutos (histórico em `ip-watch.log`) |
+| Voz fica em "Conectando…" e cai | O LiveKit não associou o IP público da casa à interface da rede local | Em `docker compose logs livekit`, a última linha `using external IPs` deve mostrar `SEU_IP_PUBLICO/192.168.x.x`. O `ip-watch.sh` confere isso a cada 2 minutos e reinicia o LiveKit se estiver errado (histórico em `ip-watch.log`) |
+| `ip-watch.log` cheio de `Resolving timed out` | O DNS do container está falhando (isso também atrapalha o LiveKit a descobrir o IP) | No shell do Proxmox: `pct set ID --nameserver "1.1.1.1 8.8.8.8"` e reinicie o container |
+| A voz parou depois que a internet caiu e voltou | O IP de casa mudou | O `ip-watch.sh` reinicia o LiveKit sozinho em até 2 minutos |
 | App diz "Não foi possível conectar ao servidor", mas o endereço funciona para outras pessoas | A rede guardou a resposta antiga de "não existe" (de antes da rota existir) | `ipconfig /flushdns`; se o `nslookup resenha.seudominio.com` ainda disser *Non-existent domain*, reinicie o roteador (ou o AdGuard/Pi-hole) ou espere até 30 min |
 | Mesmo erro num PC com **VPN** (ex: Proton, DNS `10.2.0.1`) e o `nslookup` só mostra endereços IPv6 (`2606:...`) | O DNS da VPN guardou a resposta antiga e a VPN bloqueia IPv6 | Desligue a VPN, ou exclua o Resenha no *Split Tunneling* da VPN (melhor também para a voz) |
 | Upload falha com arquivo grande | Limite de 100 MB do Cloudflare (plano grátis) | Mantenha `MAX_UPLOAD_MB=95` |
