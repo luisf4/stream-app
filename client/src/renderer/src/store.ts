@@ -1,0 +1,82 @@
+import { create } from 'zustand'
+import { Api, loadSession } from './lib/api'
+import { loadSettings, saveSettings, type Settings } from './lib/settings'
+import type { Channel, Message, Session, User, VoiceState } from './lib/types'
+
+export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting'
+
+export interface State {
+  session: Session | null
+  api: Api | null
+  socketConnected: boolean
+
+  channels: Channel[]
+  selectedChannelId: string | null
+  messages: Record<string, Message[]>
+  hasMore: Record<string, boolean>
+  unread: Record<string, number>
+  voiceStates: VoiceState[]
+  online: User[]
+  /** canal -> apelido -> expira em (ms) */
+  typing: Record<string, Record<string, number>>
+
+  // voz local
+  voiceChannelId: string | null
+  voiceStatus: VoiceStatus
+  muted: boolean
+  deafened: boolean
+  camera: boolean
+  sharing: boolean
+  speaking: string[]
+  /** incrementa a cada evento do LiveKit para re-renderizar o palco */
+  roomVersion: number
+
+  settings: Settings
+  toast: string | null
+}
+
+const initialSession = loadSession()
+
+export const useStore = create<State>(() => ({
+  session: initialSession,
+  api: initialSession ? new Api(initialSession) : null,
+  socketConnected: false,
+  channels: [],
+  selectedChannelId: null,
+  messages: {},
+  hasMore: {},
+  unread: {},
+  voiceStates: [],
+  online: [],
+  typing: {},
+  voiceChannelId: null,
+  voiceStatus: 'idle',
+  muted: false,
+  deafened: false,
+  camera: false,
+  sharing: false,
+  speaking: [],
+  roomVersion: 0,
+  settings: loadSettings(),
+  toast: null,
+}))
+
+export function updateSettings(patch: Partial<Settings>) {
+  const settings = { ...useStore.getState().settings, ...patch }
+  useStore.setState({ settings })
+  saveSettings(settings)
+}
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined
+export function showToast(message: string) {
+  useStore.setState({ toast: message })
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => useStore.setState({ toast: null }), 4000)
+}
+
+export function selectChannel(channelId: string) {
+  useStore.setState((s) => ({
+    selectedChannelId: channelId,
+    unread: { ...s.unread, [channelId]: 0 },
+  }))
+}

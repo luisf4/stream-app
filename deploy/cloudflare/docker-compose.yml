@@ -1,0 +1,39 @@
+# Servidor em casa (Proxmox etc.) SEM abrir portas no roteador:
+#  - site/API/chat e a sinalização da voz saem pelo Cloudflare Tunnel (conexão de saída)
+#  - áudio/vídeo chegam ao LiveKit pelo TURN do Cloudflare (também por conexão de saída)
+services:
+  app:
+    build: ../../server
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATA_DIR: /data
+      LIVEKIT_PUBLIC_URL: wss://${LIVEKIT_DOMAIN}
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    network_mode: host
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ../livekit.yaml:/etc/livekit.yaml:ro
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    # host network: alcança o app (localhost:3000) e o LiveKit (localhost:7880)
+    network_mode: host
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - app
+      - livekit

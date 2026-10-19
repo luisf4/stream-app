@@ -1,0 +1,11 @@
+{$DOMAIN} {
+	# Sinalização do LiveKit (o app conecta em wss://DOMINIO/rtc)
+	handle /rtc* {
+		reverse_proxy 127.0.0.1:7880
+	}
+
+	# API, arquivos e Socket.IO do Resenha
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

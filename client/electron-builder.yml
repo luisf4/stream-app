@@ -1,0 +1,24 @@
+appId: app.resenha.desktop
+productName: Resenha
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**
+  - resources/**
+  - package.json
+asarUnpack:
+  - resources/**
+# só português e inglês: deixa o instalador menor
+electronLanguages:
+  - pt-BR
+  - en-US
+win:
+  target: nsis
+  icon: resources/icon.png
+  artifactName: Resenha-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  shortcutName: Resenha

@@ -1,0 +1,15 @@
+# As chaves vêm da variável LIVEKIT_KEYS (definida no docker-compose a partir do .env)
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: true
+  # Atrás de um roteador sem portas abertas (Cloudflare) ou sem "NAT loopback", o LiveKit não
+  # consegue validar o próprio IP público e deixaria de anunciá-lo — aí o TURN não alcança a mídia.
+  skip_external_ip_validation: true
+room:
+  empty_timeout: 300
+  departure_timeout: 20
+logging:
+  level: info

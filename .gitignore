@@ -1,0 +1,13 @@
+tools/
+node_modules/
+out/
+dist/
+data/
+.env
+deploy/.env
+deploy/data/
+deploy/.last_ip
+deploy/duckdns.log
+deploy/cloudflare/data/
+deploy/cloudflare/.last_ip
+deploy/cloudflare/ip-watch.log
