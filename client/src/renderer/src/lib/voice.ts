@@ -96,10 +96,32 @@ let mutedBeforeDeafen = false
 
 interface AudioEntry {
   el: HTMLMediaElement
+  track: MediaStreamTrack
   name: string
   source: Track.Source
+  /** amplificador (Web Audio), criado só quando o volume passa de 100% */
+  boost?: { source: MediaStreamAudioSourceNode; gain: GainNode }
 }
 const audioEntries = new Map<string, AudioEntry>()
+
+/** Volume por pessoa vai de 0 a 200%. */
+export const MAX_USER_VOLUME = 2
+
+// Até 100% o volume é do próprio <audio> (mantém o cancelamento de eco do navegador). Acima disso
+// o som passa por um GainNode — o <audio> continua tocando mudo, senão o Chrome não entrega o áudio
+// remoto ao Web Audio.
+let playbackCtx: AudioContext | null = null
+function playbackContext() {
+  playbackCtx ??= new AudioContext()
+  if (playbackCtx.state === 'suspended') void playbackCtx.resume()
+  return playbackCtx
+}
+
+function removeBoost(entry: AudioEntry) {
+  entry.boost?.source.disconnect()
+  entry.boost?.gain.disconnect()
+  entry.boost = undefined
+}
 
 let audioContainer: HTMLDivElement | null = null
 function container() {
@@ -123,16 +145,39 @@ export const getRoom = () => room
 
 // ---------- áudio recebido (volume, ensurdecer, saída) ----------
 
+type SinkTarget = { setSinkId?: (id: string) => Promise<void> }
+
 function applyAudio(entry: AudioEntry) {
   const { settings, deafened } = get()
   const volume = settings.volumes[entry.name]
-  const value =
+  const raw =
     entry.source === Track.Source.ScreenShareAudio ? (volume?.stream ?? 1) : (volume?.voice ?? 1)
-  entry.el.volume = Math.min(Math.max(value, 0), 1)
-  entry.el.muted = deafened
+  const value = Math.min(Math.max(raw, 0), MAX_USER_VOLUME)
   const sink = settings.outputDeviceId
-  const el = entry.el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> }
-  if (el.setSinkId && sink) el.setSinkId(sink).catch(() => {})
+
+  if (value <= 1 || deafened) {
+    removeBoost(entry)
+    entry.el.volume = value
+    entry.el.muted = deafened
+    const el = entry.el as HTMLMediaElement & SinkTarget
+    if (el.setSinkId && sink) el.setSinkId(sink).catch(() => {})
+    return
+  }
+
+  // acima de 100%: <audio> mudo + amplificador
+  entry.el.muted = true
+  const ctx = playbackContext()
+  if (!entry.boost) {
+    const source = ctx.createMediaStreamSource(new MediaStream([entry.track]))
+    const gain = ctx.createGain()
+    source.connect(gain).connect(ctx.destination)
+    entry.boost = { source, gain }
+  }
+  entry.boost.gain.gain.value = value
+  const sinkCtx = ctx as AudioContext & SinkTarget
+  if (sinkCtx.setSinkId && sink) {
+    sinkCtx.setSinkId(sink === 'default' ? '' : sink).catch(() => {})
+  }
 }
 
 export function refreshAudio() {
@@ -146,6 +191,14 @@ export function setUserVolume(name: string, kind: 'voice' | 'stream', value: num
   refreshAudio()
 }
 
+/** Volta voz e transmissão da pessoa para 100%. */
+export function resetUserVolume(name: string) {
+  const volumes = { ...get().settings.volumes }
+  delete volumes[name]
+  updateSettings({ volumes })
+  refreshAudio()
+}
+
 // ---------- entrar / sair ----------
 
 function wire(r: Room) {
@@ -155,7 +208,12 @@ function wire(r: Room) {
       if (track.kind === Track.Kind.Audio) {
         const el = track.attach()
         container().appendChild(el)
-        const entry = { el, name: participant.name || participant.identity, source: pub.source }
+        const entry: AudioEntry = {
+          el,
+          track: track.mediaStreamTrack,
+          name: participant.name || participant.identity,
+          source: pub.source,
+        }
         audioEntries.set(pub.trackSid, entry)
         applyAudio(entry)
       }
@@ -165,6 +223,8 @@ function wire(r: Room) {
     .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, pub: RemoteTrackPublication) => {
       if (track.kind === Track.Kind.Audio) {
         track.detach().forEach((el) => el.remove())
+        const entry = audioEntries.get(pub.trackSid)
+        if (entry) removeBoost(entry)
         audioEntries.delete(pub.trackSid)
       }
       bump()
@@ -215,7 +275,10 @@ function wire(r: Room) {
 
 function cleanup() {
   room = null
-  audioEntries.forEach((e) => e.el.remove())
+  audioEntries.forEach((e) => {
+    removeBoost(e)
+    e.el.remove()
+  })
   audioEntries.clear()
   set({
     voiceChannelId: null,

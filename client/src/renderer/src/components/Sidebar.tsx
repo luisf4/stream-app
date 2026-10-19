@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { request } from '../lib/socket'
 import type { Channel } from '../lib/types'
+import { UserVolume } from './UserVolume'
 import {
   joinVoice,
   leaveVoice,
-  setUserVolume,
   stopScreenShare,
   toggleCamera,
   toggleDeafen,
@@ -192,30 +192,6 @@ export function Sidebar({
         />
       )}
     </aside>
-  )
-}
-
-function UserVolume({ nickname }: { nickname: string }) {
-  const volume = useStore((s) => s.settings.volumes[nickname]) ?? { voice: 1, stream: 1 }
-  return (
-    <div className="menu-volume">
-      <div className="menu-title">{nickname}</div>
-      {(['voice', 'stream'] as const).map((kind) => (
-        <label key={kind} className="menu-slider">
-          <span>
-            {kind === 'voice' ? 'Volume da voz' : 'Volume da transmissão'}
-            <b>{Math.round(volume[kind] * 100)}%</b>
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(volume[kind] * 100)}
-            onChange={(e) => setUserVolume(nickname, kind, Number(e.target.value) / 100)}
-          />
-        </label>
-      ))}
-    </div>
   )
 }
 

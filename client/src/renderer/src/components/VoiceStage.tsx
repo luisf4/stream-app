@@ -3,8 +3,18 @@ import { useEffect, useRef, useState } from 'react'
 import { getRoom, joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleMute } from '../lib/voice'
 import { useStore } from '../store'
 import { Avatar } from './Avatar'
-import { ExpandIcon, MicIcon, MonitorIcon, PhoneOffIcon, StatsIcon, VideoIcon } from './Icons'
+import { ContextMenu } from './ContextMenu'
+import {
+  ExpandIcon,
+  MicIcon,
+  MonitorIcon,
+  PhoneOffIcon,
+  SpeakerIcon,
+  StatsIcon,
+  VideoIcon,
+} from './Icons'
 import { StreamStats } from './StreamStats'
+import { UserVolume } from './UserVolume'
 
 interface TileData {
   key: string
@@ -163,8 +173,14 @@ function Tile({
   const ref = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [showStats, setShowStats] = useState(false)
+  const [volumeMenu, setVolumeMenu] = useState<{ x: number; y: number } | null>(null)
   const { participant, track, kind } = tile
   const name = participant.name || participant.identity
+  const remote = !participant.isLocal
+  const volume = useStore((s) => s.settings.volumes[name])
+  const pct = Math.round(((kind === 'screen' ? volume?.stream : volume?.voice) ?? 1) * 100)
+
+  const openVolume = (x: number, y: number) => setVolumeMenu({ x, y })
 
   useEffect(() => {
     const el = videoRef.current
@@ -186,6 +202,11 @@ function Tile({
       className={`tile ${kind}${speaking && kind === 'camera' ? ' speaking' : ''}`}
       onClick={onClick}
       onDoubleClick={fullscreen}
+      onContextMenu={(e) => {
+        if (!remote) return
+        e.preventDefault()
+        openVolume(e.clientX, e.clientY)
+      }}
     >
       {track ? (
         <video
@@ -205,8 +226,26 @@ function Tile({
           {participant.isLocal ? ' (você)' : ''}
         </span>
         {kind === 'camera' && !participant.isMicrophoneEnabled && <MicIcon size={14} slashed />}
+        {remote && pct !== 100 && (
+          <span className={`volume-badge${pct > 100 ? ' boosted' : ''}`} title="Volume ajustado neste PC">
+            {pct}%
+          </span>
+        )}
       </div>
       <div className="tile-buttons">
+        {remote && (
+          <button
+            className={`icon-btn${volumeMenu ? ' active' : ''}`}
+            title="Volume desta pessoa"
+            onClick={(e) => {
+              e.stopPropagation()
+              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              openVolume(box.left - 200, box.bottom + 6)
+            }}
+          >
+            <SpeakerIcon size={16} />
+          </button>
+        )}
         {track && (
           <button
             className={`icon-btn${showStats ? ' active' : ''}`}
@@ -231,6 +270,18 @@ function Tile({
         </button>
       </div>
       {track && showStats && <StreamStats track={track} />}
+      {volumeMenu && (
+        // cliques dentro do menu não podem chegar ao vídeo (focar / tela cheia)
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
+        >
+          <ContextMenu x={volumeMenu.x} y={volumeMenu.y} onClose={() => setVolumeMenu(null)}>
+            <UserVolume nickname={name} />
+          </ContextMenu>
+        </div>
+      )}
     </div>
   )
 }

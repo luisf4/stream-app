@@ -997,6 +997,33 @@ a {
 .menu-slider input {
   accent-color: var(--accent);
 }
+.menu-slider b.boosted,
+.volume-badge.boosted {
+  color: var(--warning);
+}
+.menu-slider b.muted-pct {
+  color: var(--danger);
+}
+.menu-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--warning);
+}
+.menu-reset {
+  width: 100%;
+  padding: 6px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  font-size: 13px;
+}
+.menu-reset:hover {
+  background: var(--bg-active);
+}
+.volume-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9aa0a6;
+}
 
 .tabs {
   display: flex;
