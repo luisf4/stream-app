@@ -1,299 +1,282 @@
-# Deploy do servidor Resenha na nuvem
+# Deploying on a VPS (or any server with open ports)
 
-Guia passo a passo para colocar o servidor no ar e os amigos conectarem de qualquer lugar.
+This guide puts the Resenha backend on a cloud VPS (or any Linux server where you can open ports) so your friends
+can connect from anywhere. You end up with three Docker containers:
 
-No final você terá uma VPS rodando 3 containers Docker:
+| Container | Role | Ports |
+|---|---|---|
+| `caddy` | Automatic HTTPS (Let's Encrypt) and reverse proxy | TCP 80, 443 |
+| `app` | Login, channels, chat and uploads (Node + SQLite) | internal (3000) |
+| `livekit` | Voice, video and screen sharing (WebRTC SFU) | TCP 7881, UDP 50000-50100 |
 
-| Container | O que faz | Portas |
-|-----------|-----------|--------|
-| `caddy`   | HTTPS automático (Let's Encrypt) e proxy | TCP 80, 443 |
-| `app`     | Login, canais, chat, uploads (Node + SQLite) | interna (3000) |
-| `livekit` | Voz, vídeo e compartilhamento de tela (WebRTC) | TCP 7881, UDP 50000-50100 |
+> Running it at home without opening ports on your router? See [DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md).
 
-> Quer rodar num servidor de casa (Proxmox) sem abrir portas no roteador? Veja o [DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md).
-
-Você **não precisa comprar domínio**: o script usa `SEU-IP.sslip.io` (ex: `203-0-113-5.sslip.io`),
-que aponta automaticamente para o seu IP e recebe certificado HTTPS de verdade.
-
----
-
-## 1. Criar a VPS
-
-Qualquer VPS com **Ubuntu 22.04/24.04 ou Debian 12**, **1 vCPU e 1–2 GB de RAM** já basta para um grupo de amigos.
-
-| Provedor | Plano sugerido | Preço | Observação |
-|----------|----------------|-------|------------|
-| Oracle Cloud | Ampere A1 (ARM) | grátis | Precisa de cartão para cadastro; tem firewall extra (ver passo 2) |
-| Hetzner | CX22 | ~€4/mês | 20 TB de tráfego incluso, muito simples |
-| DigitalOcean / Vultr | 1 GB | ~US$6/mês | Tráfego menor incluso |
-
-**Tráfego:** uma transmissão 1080p 30fps usa ~4,5 Mbps **por espectador** (720p: ~2,5 Mbps). 3 amigos assistindo 3h por dia ≈ 200 GB/mês.
-
-Ao criar a VPS, escolha login por **chave SSH** (mais seguro) e anote o **IP público**.
+**No domain needed:** by default the installer uses `YOUR-IP.sslip.io` (e.g. `203-0-113-5.sslip.io`), a free
+wildcard DNS name that resolves to your IP and gets a real HTTPS certificate. A home server with a dynamic IP can
+use a free **DuckDNS** hostname instead.
 
 ---
 
-## 2. Liberar as portas no firewall da nuvem
+## 1. Create the server
 
-No painel do provedor (Security Group / Firewall / Security List), libere **entrada** de qualquer origem (`0.0.0.0/0`):
+Any **Ubuntu 22.04/24.04 or Debian 12** machine with **1 vCPU and 1–2 GB of RAM** is enough for a group of friends.
 
-| Protocolo | Portas | Para quê |
-|-----------|--------|----------|
-| TCP | 22 | SSH (já costuma vir liberada) |
-| TCP | 80 | Emissão do certificado HTTPS |
-| TCP | 443 | App (API, chat, sinalização da voz) |
-| TCP | 7881 | Voz/vídeo quando UDP está bloqueado |
-| UDP | 50000-50100 | Voz/vídeo (principal) |
+| Provider | Suggested plan | Price | Notes |
+|---|---|---|---|
+| Oracle Cloud | Ampere A1 (ARM) | free | Requires a card at signup; has an extra firewall (see step 2) |
+| Hetzner | CX22 | ~€4/month | 20 TB of traffic included |
+| DigitalOcean / Vultr | 1 GB | ~US$6/month | Less traffic included |
 
-### Só na Oracle Cloud
+**Traffic:** a 1080p 30 fps stream uses ~4.5 Mbps **per viewer** (720p: ~2.5 Mbps). Three friends watching
+3 hours a day is roughly 200 GB/month.
 
-Além da Security List, as imagens Ubuntu da Oracle vêm com regras de `iptables` que bloqueiam tudo.
-Depois de entrar na VPS (passo 3), rode:
+Use **SSH key** login when creating the VPS and note its **public IP**.
+
+---
+
+## 2. Open the ports
+
+In the provider's firewall (security group / firewall / security list), allow **inbound** traffic from
+anywhere (`0.0.0.0/0`):
+
+| Protocol | Ports | Used for |
+|---|---|---|
+| TCP | 22 | SSH (usually open already) |
+| TCP | 80 | HTTPS certificate issuance |
+| TCP | 443 | App: API, chat and voice signaling |
+| TCP | 7881 | Voice/video fallback when UDP is blocked |
+| UDP | 50000-50100 | Voice/video (main path) |
+
+On a **home server**, forward the same ports on your router to the server's (static) LAN IP, and make sure your
+connection **isn't behind CGNAT**: the IP at https://api.ipify.org must match the router's WAN IP.
+
+### Oracle Cloud only
+
+Oracle's Ubuntu images ship with `iptables` rules that block everything except SSH. After logging in (step 3), run:
 
 ```bash
 sudo iptables -I INPUT -p tcp -m multiport --dports 80,443,7881 -j ACCEPT
+```
+
+```bash
 sudo iptables -I INPUT -p udp --dport 50000:50100 -j ACCEPT
+```
+
+```bash
 sudo netfilter-persistent save
 ```
 
 ---
 
-## 3. Enviar o projeto para a VPS
+## 3. Get the code onto the server
 
-Só as pastas `server/` e `deploy/` são necessárias no servidor.
+### Option A: from GitHub (recommended)
 
-### Opção A — pelo Windows, sem Git (PowerShell)
+```bash
+git clone https://github.com/luisf4/stream-app.git ~/resenha && cd ~/resenha/deploy
+```
 
-O Windows 11 já vem com `tar` e `scp`. Na pasta do projeto:
+### Option B: from Windows without Git (PowerShell)
+
+Windows 11 ships with `tar` and `scp`. Only `server/` and `deploy/` are needed. In the project folder:
 
 ```bash
 tar -czf resenha.tar.gz --exclude=node_modules --exclude=dist --exclude=data --exclude=.env server deploy
 ```
 
 ```bash
-scp resenha.tar.gz ubuntu@SEU_IP:~
+scp resenha.tar.gz ubuntu@YOUR_IP:~
 ```
 
-Troque `ubuntu` pelo usuário da sua VPS (Oracle: `ubuntu`; Hetzner: `root`).
-Depois entre na VPS e extraia:
+Replace `ubuntu` with your server's user (Oracle: `ubuntu`, Hetzner: `root`). Then log in and extract:
 
 ```bash
-ssh ubuntu@SEU_IP
+ssh ubuntu@YOUR_IP
 ```
 
 ```bash
 mkdir -p ~/resenha && tar -xzf ~/resenha.tar.gz -C ~/resenha && cd ~/resenha/deploy
 ```
 
-### Opção B — com Git
-
-O código está público em https://github.com/luisf4/stream-app:
-
-```bash
-git clone https://github.com/luisf4/stream-app.git resenha && cd resenha/deploy
-```
-
 ---
 
-## 4. Rodar o instalador
+## 4. Run the installer
 
-Dentro de `deploy/`:
+Inside `deploy/`:
 
 ```bash
 sudo bash install.sh
 ```
 
-O script vai:
+The prompts are in Portuguese:
 
-1. Instalar o Docker (se ainda não tiver)
-2. Perguntar:
-   - **Domínio** — aperte Enter para usar `SEU-IP.sslip.io`
-   - **Nome do servidor** — aparece no topo do app
-   - **Senha** — a que você vai passar para os amigos
-   - **Canais de voz** — ex: `Geral,Jogos,Filmes`
-3. Gerar as chaves secretas e criar o arquivo `deploy/.env`
-4. Liberar as portas no `ufw` (se estiver ativo)
-5. Construir e subir os containers
+| Prompt | Meaning | What to enter |
+|---|---|---|
+| `Subdomínio DuckDNS` | DuckDNS subdomain | Only for a home server with a dynamic IP; press Enter to skip |
+| `Token do DuckDNS` | DuckDNS token | Only if you entered a subdomain |
+| `Domínio` | Domain | Press Enter for `YOUR-IP.sslip.io` (or the DuckDNS name), or type your own domain |
+| `Nome do servidor` | Server name | Shown at the top of the app |
+| `Senha para os amigos entrarem` | Password | The password your friends will use |
+| `Canais de voz` | Voice channels | Initial channels, e.g. `General,Games,Movies` |
 
-No final ele mostra o endereço, por exemplo:
+The installer then:
 
-```
-Pronto! No app, use o endereço:  https://203-0-113-5.sslip.io
-```
+1. installs Docker, curl, openssl and cron if missing;
+2. generates the secrets and writes `deploy/.env` (mode `600`);
+3. opens the ports in `ufw` if it's active;
+4. if DuckDNS is configured, points it at your IP and schedules `duckdns.sh` every 5 minutes (it also restarts
+   LiveKit when the IP changes);
+5. builds and starts the containers.
 
-> A primeira subida leva 1–3 minutos (build da imagem + emissão do certificado).
+It finishes by printing the address to use, e.g. `Pronto! No app, use o endereço: https://203-0-113-5.sslip.io`
+("Done! In the app, use this address").
+
+> The first start takes 1–3 minutes (image build and certificate issuance).
 
 ---
 
-## 5. Conferir se está tudo no ar
+## 5. Verify
 
 ```bash
 docker compose ps
 ```
 
-Os três serviços (`app`, `livekit`, `caddy`) devem aparecer como `running`.
-
-Teste a API (do seu PC ou da VPS):
+`app`, `livekit` and `caddy` should all be `running`. Then, from your PC:
 
 ```bash
-curl https://SEU-DOMINIO/api/health
+curl https://YOUR-DOMAIN/api/health
 ```
 
-Resposta esperada: `{"ok":true}`.
+Expected response: `{"ok":true}`.
 
-Agora abra o Resenha no Windows (`npm run dev` em `client/`), coloque o endereço, a senha e um apelido, entre num canal de voz
-e peça para um amigo entrar também. **Teste de uma rede diferente** (ex: celular roteando 4G) para
-ter certeza de que as portas UDP estão abertas.
+Join a voice channel and ask a friend to join too, ideally **from a different network** (e.g. a phone hotspot),
+to confirm the UDP ports are reachable.
 
 ---
 
-## 6. Configurar o app com o seu servidor (antes do build)
+## 6. Build the app with your server baked in
 
-Para os amigos **só digitarem o apelido**, o endereço e a senha do servidor ficam embutidos
-no instalador. Isso é feito uma vez, no seu PC, antes de gerar o `.exe`.
+So that friends **only type a nickname**, the server address and password are embedded in the installer at
+build time. On your PC:
 
-1. Na pasta `client/`, copie o exemplo:
+1. In `client/`, copy the template:
 
    ```bash
    copy .env.example .env
    ```
 
-2. Edite `client/.env` com os dados que o `install.sh` mostrou:
+2. Edit `client/.env`:
 
    ```ini
    VITE_SERVER_URL=203-0-113-5.sslip.io
-   VITE_SERVER_PASSWORD=a-senha-que-voce-definiu
+   VITE_SERVER_PASSWORD=the-password-you-chose
    ```
 
-   | Variável | O que colocar |
-   |----------|---------------|
-   | `VITE_SERVER_URL` | O endereço do passo 4 (com ou sem `https://`). Portas e caminhos do LiveKit **não** entram aqui: o servidor informa tudo ao app automaticamente. |
-   | `VITE_SERVER_PASSWORD` | A mesma `SERVER_PASSWORD` do `deploy/.env` |
+   | Variable | Value |
+   |---|---|
+   | `VITE_SERVER_URL` | The address from step 4, with or without `https://`. LiveKit's address and ports are **not** needed: the server sends them to the app. |
+   | `VITE_SERVER_PASSWORD` | Same as `SERVER_PASSWORD` in `deploy/.env` |
 
-3. Gere o instalador:
+3. Build:
 
    ```bash
    cd client
    npm run dist
    ```
 
-Pronto: ao abrir o app, a tela de login pede **só o apelido**.
+The installer is created at `client/dist/Resenha-Setup-1.0.0.exe`. It isn't code-signed, so Windows SmartScreen
+warns on first run: **More info → Run anyway**.
 
-O `.env` é lido **na hora do build** (e também no `npm run dev`, depois de reiniciar).
-**Sem** o `client/.env`, ou com as variáveis vazias, o app volta a pedir endereço + senha + apelido
-(útil para testar com `localhost:3000`).
+`client/.env` is read at build time (and by `npm run dev` after a restart). Without it, the app asks for address,
+password and nickname, which is handy for testing against `localhost:3000`.
 
-> ⚠️ **Se você trocar a senha ou o domínio do servidor**, atualize o `client/.env`, gere e mande um
-> instalador novo: o app antigo vai mostrar "A senha embutida neste app está desatualizada".
+> If you change the server password or domain, update `client/.env`, rebuild and resend the installer. Old builds
+> show *"A senha embutida neste app está desatualizada"* ("the embedded password is outdated").
 >
-> ⚠️ Quem tem o `.exe` consegue entrar no servidor (a senha vai dentro dele). Mande o instalador só
-> para os amigos. O `.env` está no `.gitignore` para não vazar se você usar Git.
+> Anyone with the `.exe` can join, because the password is inside it, so share it only with your friends.
+> `.env` files are git-ignored.
 
 ---
 
-## 7. Mandar o app para os amigos
+## Bandwidth and stream quality
 
-Envie `client/dist/Resenha-Setup-1.0.0.exe` (só ele, não precisa mandar endereço nem senha).
-Na primeira execução o Windows mostra "O Windows protegeu o computador" (o app não é assinado):
-**Mais informações → Executar assim mesmo**.
+The SFU forwards one copy of each stream **per viewer**, from the server's upload:
 
----
+| Quality | Per viewer |
+|---|---|
+| 1080p 30 fps | ~4.5 Mbps |
+| 720p 30 fps | ~2.5 Mbps |
 
-## Manutenção
+VPS plans usually have plenty of upload. On a home server, measure it (`speedtest-cli --secure --simple`) and
+leave ~30% headroom.
 
-### Ver logs
-
-```bash
-docker compose logs -f app
-```
-
-```bash
-docker compose logs -f livekit
-```
-
-```bash
-docker compose logs -f caddy
-```
-
-### Atualizar o servidor depois de mudar o código
-
-Envie de novo a pasta `server/` (passo 3) e, dentro de `deploy/`:
-
-```bash
-docker compose up -d --build
-```
-
-### Atualizar LiveKit e Caddy para a versão mais nova
-
-```bash
-docker compose pull && docker compose up -d
-```
-
-### Trocar a senha (ou nome, limite de upload)
-
-Edite `deploy/.env` e aplique:
-
-```bash
-nano .env
-```
-
-```bash
-docker compose up -d
-```
-
-Trocar a senha **desloga todo mundo**. Atualize também o `VITE_SERVER_PASSWORD` no `client/.env`,
-gere o instalador de novo (passo 6) e mande para os amigos.
-
-### Variáveis do `.env`
-
-| Variável | Descrição |
-|----------|-----------|
-| `DOMAIN` | Domínio público (ex: `203-0-113-5.sslip.io` ou `resenha.seudominio.com`) |
-| `SERVER_NAME` | Nome exibido no app |
-| `SERVER_PASSWORD` | Senha para entrar |
-| `JWT_SECRET` | Segredo das sessões (não compartilhe) |
-| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Chaves do LiveKit (não compartilhe) |
-| `CHANNELS` | Canais criados na **primeira** subida (depois, gerencie pelo app) |
-| `MAX_UPLOAD_MB` | Tamanho máximo de arquivo no chat (padrão 100) |
-
-### Backup
-
-Mensagens (SQLite) e arquivos enviados ficam em `deploy/data/`:
-
-```bash
-tar -czf ~/backup-resenha-$(date +%F).tar.gz -C ~/resenha/deploy data .env
-```
-
-Para restaurar numa VPS nova: extraia o backup dentro de `deploy/` antes de rodar `docker compose up -d --build`.
-
-### Usar um domínio próprio
-
-1. No seu provedor de DNS, crie um registro **A** apontando `resenha.seudominio.com` para o IP da VPS
-2. Edite `DOMAIN=` no `deploy/.env`
-3. `docker compose up -d`
-4. Troque o `VITE_SERVER_URL` no `client/.env`, gere o instalador de novo (passo 6) e mande para os amigos
+In a call, the **stats icon** on each video shows resolution, fps, bitrate, packet loss, the connection type and
+`Limitado por` ("limited by": `CPU` or `banda`, i.e. bandwidth). That's the quickest way to find out why a stream
+stutters.
 
 ---
 
-## Problemas comuns
+## Maintenance
 
-| Sintoma | Causa provável | Solução |
-|---------|----------------|---------|
-| App diz "Não foi possível conectar ao servidor" | Porta 443 fechada ou certificado ainda não emitido | Confira o passo 2; veja `docker compose logs caddy` |
-| Caddy mostra erro de certificado / ACME | Porta 80 fechada | Libere TCP 80 (Let's Encrypt precisa dela) |
-| Chat funciona, mas a voz fica em "Conectando…" ou cai | Portas do LiveKit bloqueadas | Libere UDP 50000-50100 e TCP 7881; na Oracle, rode os comandos de `iptables` |
-| Entra na voz mas ninguém se ouve | UDP bloqueado na rede de alguém | Confirme TCP 7881 aberto (fallback automático) |
-| `install.sh: $'\r': command not found` | Arquivo copiado com quebras de linha do Windows | `sed -i 's/\r$//' install.sh` e rode de novo |
-| "Senha do servidor incorreta" para todos | Senha mudou no `.env` | Use a senha atual (`grep SERVER_PASSWORD .env`) |
-| Upload falha com arquivo grande | Acima de `MAX_UPLOAD_MB` | Aumente no `.env` e `docker compose up -d` |
-| VPS sem memória (containers reiniciando) | RAM de 1 GB apertada no build | Crie swap: `sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile` |
+All commands run inside `deploy/`.
+
+| Task | Command |
+|---|---|
+| Update to the latest code | `git pull && docker compose up -d --build` |
+| App server logs | `docker compose logs -f app` |
+| LiveKit logs | `docker compose logs -f livekit` |
+| Caddy (HTTPS) logs | `docker compose logs -f caddy` |
+| Apply `.env` changes | `docker compose up -d` |
+| Update LiveKit and Caddy images | `docker compose pull && docker compose up -d` |
+| Back up messages and files | `tar -czf ~/backup-resenha-$(date +%F).tar.gz data .env` |
+
+To restore on a new server, extract the backup inside `deploy/` before running `docker compose up -d --build`.
+
+All services use `restart: unless-stopped`, and Docker is enabled at boot, so **everything comes back after a
+reboot**.
+
+Changing the password **logs everyone out**; rebuild and resend the installer with the new `VITE_SERVER_PASSWORD`.
+
+### `.env` variables
+
+| Variable | Description |
+|---|---|
+| `DOMAIN` | Public hostname (e.g. `203-0-113-5.sslip.io`, `resenha.yourdomain.com`) |
+| `SERVER_NAME` | Name shown in the app |
+| `SERVER_PASSWORD` | Password to join |
+| `JWT_SECRET` | Session signing secret (keep private) |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | LiveKit keys (keep private) |
+| `CHANNELS` | Channels created on the **first** start (manage them from the app afterwards) |
+| `MAX_UPLOAD_MB` | Max file size in the chat (default 100) |
+| `DUCKDNS_SUBDOMAIN` / `DUCKDNS_TOKEN` | Optional, for a home server with a dynamic IP |
+
+### Using your own domain
+
+1. Create an **A record** pointing `resenha.yourdomain.com` to the server IP.
+2. Set `DOMAIN=` in `deploy/.env` and run `docker compose up -d`.
+3. Update `VITE_SERVER_URL` in `client/.env`, rebuild the installer and resend it.
 
 ---
 
-## Segurança
+## Troubleshooting
 
-- Só os amigos com a senha conseguem entrar; as sessões duram 30 dias.
-- Os arquivos enviados no chat ficam acessíveis por um link longo e aleatório (não listável) —
-  quem tiver o link consegue abrir.
-- Mantenha o `deploy/.env` privado (o script já cria com permissão `600`).
-- Atualize o sistema da VPS de vez em quando: `sudo apt update && sudo apt upgrade -y`.
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| App says *"Não foi possível conectar ao servidor"* ("couldn't connect to the server") | Port 443 closed or certificate not issued yet | Check step 2; see `docker compose logs caddy` |
+| Caddy shows certificate / ACME errors | Port 80 closed | Open TCP 80 (Let's Encrypt needs it) |
+| Chat works but voice is stuck on *"Conectando…"* ("connecting") or drops | LiveKit ports blocked | Open UDP 50000-50100 and TCP 7881; on Oracle, run the `iptables` commands |
+| Connected to voice but nobody hears anybody | UDP blocked on someone's network | Make sure TCP 7881 is open (automatic fallback) |
+| Streams stutter / low fps | Not enough upload, or a weak PC encoding the stream | Check the stats panel: use 720p if limited by bandwidth (`banda`) |
+| *"Senha do servidor incorreta"* ("wrong server password") for everyone | Password changed in `.env` | Use the current one (`grep SERVER_PASSWORD .env`) and rebuild the installer |
+| Large uploads fail | Above `MAX_UPLOAD_MB` | Raise it in `.env`, then `docker compose up -d` |
+| `install.sh: $'\r': command not found` | Windows line endings | `sed -i 's/\r$//' install.sh duckdns.sh` |
+| Containers keep restarting on a 1 GB server | Out of memory during the build | Add swap: `sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile` |
+
+---
+
+## Security notes
+
+- Only people with the password can join; sessions last 30 days, and changing the password invalidates them all.
+- Files uploaded to the chat are served from long random (unlisted) URLs: anyone with the link can open them.
+- Keep `deploy/.env` private (the installer creates it with mode `600`).
+- Keep the server updated: `sudo apt update && sudo apt upgrade -y`.

@@ -183,8 +183,8 @@ npm run dev:2
 | **Home server, no open ports** (Proxmox + Cloudflare Tunnel + Cloudflare TURN) | [DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md) |
 | **VPS or server with open ports** (self-hosted LiveKit, automatic HTTPS with Caddy) | [DEPLOY.md](DEPLOY.md) |
 
-Both guides are written in Portuguese. Each mode has an `install.sh` that installs Docker, asks for the server
-password and credentials, generates the secrets and starts the stack.
+Each mode has an `install.sh` that installs Docker, asks for the server password and credentials (prompts are in
+Portuguese; the guides translate them), generates the secrets and starts the stack.
 
 To build the Windows installer with the server address embedded, copy `client/.env.example` to `client/.env`,
 fill in `VITE_SERVER_URL` and `VITE_SERVER_PASSWORD`, and run:

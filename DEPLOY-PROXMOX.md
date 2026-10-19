@@ -1,129 +1,166 @@
-# Deploy em casa no Proxmox (sem abrir portas)
+# Deploying on a home server (Proxmox) with no open ports
 
-Guia para rodar **tudo** do Resenha (servidor, chat e LiveKit) num container do seu Proxmox,
-**sem abrir nenhuma porta no roteador**, usando o Cloudflare. Os amigos só instalam o app.
+This guide runs the **whole** Resenha backend (app server, chat and the LiveKit media server) in a single
+container on a home Proxmox host, **without opening any port on the router**. Your friends only install
+the Windows app.
+
+> Prefer a VPS or a server where you can open ports? See [DEPLOY.md](DEPLOY.md).
 
 ```
-                       ┌──────────── Cloudflare ────────────┐
- App Resenha ──HTTPS──>│ Tunnel (site, chat, sinalização)   │<── cloudflared ──┐
-      │                │                                    │                  │  seu Proxmox
-      └──voz/vídeo────>│ TURN  (retransmite áudio e vídeo)  │<── LiveKit ──────┤  (só conexões
-                       └────────────────────────────────────┘                  │   de saída)
-                                                                    app (chat)─┘
+                         ┌───────────── Cloudflare ─────────────┐
+ Resenha app ──HTTPS───> │ Tunnel  (login, chat, voice signaling)│ <── cloudflared ──┐
+      │                  │                                       │                   │  your Proxmox
+      └─ audio/video ──> │ TURN    (relays audio and video, UDP) │ <── LiveKit ──────┤  (outbound
+                         └───────────────────────────────────────┘                   │   connections
+                                                                     app server ─────┘   only)
 ```
 
-- **Cloudflare Tunnel:** leva o site, o chat e a sinalização da voz até o seu Proxmox
-- **TURN do Cloudflare (Realtime):** retransmite o áudio e o vídeo. O Tunnel não passa UDP, então a
-  mídia vai do app para o TURN do Cloudflare, e de lá para o LiveKit na sua casa.
+- **Cloudflare Tunnel** carries the website, the API, the chat and LiveKit's signaling to your server.
+- **Cloudflare TURN (Realtime)** relays the audio and video. A tunnel can't carry WebRTC's UDP media, so
+  clients send media to Cloudflare's TURN relay, and LiveKit reaches that relay from inside your network.
 
-Os dois funcionam por **conexões de saída** do seu servidor, por isso nada precisa ser aberto no roteador
-(e funciona até com CGNAT).
+Both use **outbound** connections from your server, so nothing has to be opened on the router. This also
+works behind **CGNAT**.
 
-### O que você vai precisar
+Clients on the **same LAN as the server** skip Cloudflare entirely and connect to LiveKit directly. That way
+a friend streaming from your house doesn't spend your upload bandwidth on their own stream.
 
-| Item | Custo |
-|------|-------|
-| Um **domínio** comprado no Cloudflare | ~US$10/ano para `.com` |
-| **Cloudflare Tunnel** | grátis |
-| **TURN do Cloudflare** | grátis até uma cota mensal alta (confira em https://developers.cloudflare.com/realtime/turn/), suficiente para um grupo de amigos |
-| Proxmox com 1 container: 2 núcleos, 2 GB RAM, 16 GB de disco | — |
+### What you need
+
+| Item | Cost |
+|---|---|
+| A **domain** registered on Cloudflare | ~US$10/year for a `.com` |
+| **Cloudflare Tunnel** | free |
+| **Cloudflare TURN** | free up to 1,000 GB/month of relayed media ([pricing](https://developers.cloudflare.com/realtime/turn/)) |
+| A Proxmox host with room for one container: 2 cores, 2 GB RAM, 16 GB disk | — |
 
 ---
 
-## 1. Comprar o domínio
+## 1. Register a domain
 
-1. Crie uma conta em https://dash.cloudflare.com
-2. Vá em **Domain Registration → Register Domains**, procure um nome e compre
-   (o Cloudflare vende a preço de custo)
+1. Create an account at https://dash.cloudflare.com
+2. Go to **Domain Registration → Register Domains** and buy a name (Cloudflare sells at cost).
 
-Neste guia o domínio de exemplo é `seudominio.com`.
+This guide uses `yourdomain.com` as the example.
 
 ---
 
-## 2. Criar o TURN (áudio e vídeo)
+## 2. Create the TURN server (audio and video)
 
-1. No painel do Cloudflare, abra **Realtime** (no menu lateral; em contas antigas pode aparecer como **Calls**)
-2. Entre em **TURN Server → Create** e dê um nome (ex: `resenha`)
-3. Anote os dois valores que aparecem:
+1. In the Cloudflare dashboard, open **Realtime** in the sidebar (older accounts may show it as **Calls**).
+2. Go to **TURN Server → Create** and give it a name (e.g. `resenha`).
+3. Write down both values:
    - **Turn Token ID**
-   - **API Token** (aparece **uma vez só**; copie agora)
+   - **API Token** (shown **only once**, so copy it now)
 
 ---
 
-## 3. Criar o túnel
+## 3. Create the tunnel
 
-1. Abra https://one.dash.cloudflare.com (Zero Trust). Na primeira vez, ele pede para escolher um nome de
-   equipe e o plano **Free** (pode pedir um cartão, mas o plano Free não cobra).
-2. Vá em **Networks → Tunnels → Create a tunnel → Cloudflared**
-3. Dê um nome (ex: `resenha`) e salve
-4. Na tela de instalação, escolha **Docker** e copie **só o token**: o texto longo depois de `--token`
-   (começa com `eyJ...`). Não precisa rodar o comando que aparece lá.
-5. Avance para **Public Hostnames** (ou **Routes → Published application**) e crie **dois** endereços:
+1. Open https://one.dash.cloudflare.com (Zero Trust). The first time, it asks for a team name and a plan:
+   choose **Free** (it may ask for a card, but the Free plan is not charged).
+2. Go to **Networks → Tunnels → Create a tunnel → Cloudflared**.
+3. Name it (e.g. `resenha`) and save.
+4. On the install screen, pick **Docker** and copy **only the token**: the long string after `--token`
+   (it starts with `eyJ`).
 
-   | Subdomain | Domain | Type | URL | Para quê |
-   |-----------|--------|------|-----|----------|
-   | `resenha` | `seudominio.com` | HTTP | `localhost:3000` | App, login e chat |
-   | `voz` | `seudominio.com` | HTTP | `localhost:7880` | Sinalização da voz (LiveKit) |
+   > The dashboard waits on *"Waiting for your Tunnel to connect…"* until a connector is running. If you
+   > want to get past this screen before installing Resenha, start a temporary connector in the container
+   > from step 4: `docker run -d --name cloudflared-temp --restart unless-stopped --network host cloudflare/cloudflared:latest tunnel --no-autoupdate run --token YOUR_TOKEN`.
+   > Remove it before step 6 (`docker rm -f cloudflared-temp`).
 
-6. Salve.
+5. Create **two routes**: **Add route → Published application** (called *Public Hostnames* in older
+   dashboards).
 
-> O WebSocket já vem ligado no Cloudflare. Se tiver mexido nisso, confira em **seu domínio → Network → WebSockets: On**.
+   | Subdomain | Domain | Service URL | Used for |
+   |---|---|---|---|
+   | `resenha` | `yourdomain.com` | `http://localhost:3000` | App, login and chat |
+   | `voz` | `yourdomain.com` | `http://localhost:7880` | Voice signaling (LiveKit) |
 
----
+   The URL needs the `http://` prefix. Use `http://`, not `https://`: Cloudflare already provides HTTPS
+   to the outside world.
 
-## 4. Criar o container no Proxmox
-
-Recomendado: **container LXC Debian 12** (leve). Uma VM Debian/Ubuntu também funciona.
-
-1. No Proxmox: **local → CT Templates → Templates** e baixe `debian-12-standard`
-2. **Create CT**:
-   - Template: `debian-12-standard`
-   - Disco: 16 GB · CPU: 2 núcleos · Memória: 2048 MB · Swap: 512 MB
-   - Rede: DHCP serve (não precisa de IP fixo, já que nada aponta para o container)
-3. **Antes de iniciar**, em **Options → Features**, marque **nesting** e **keyctl** (o Docker precisa)
-4. Inicie o container e abra o **Console**
+WebSockets are enabled by default on Cloudflare (**your domain → Network → WebSockets: On**).
 
 ---
 
-## 5. Enviar o projeto para o container
+## 4. Create the container on Proxmox
 
-> Se você criou o túnel com o container temporário `cloudflared-temp`, apague-o antes do passo 6
-> (o `install.sh` sobe o túnel definitivo): `docker rm -f cloudflared-temp`
+A **Debian 12 LXC container** is recommended (lightweight); a Debian/Ubuntu VM also works.
 
-### Opção A — pelo GitHub (recomendado)
+The fastest way is to paste this into the **Proxmox host shell** (*node → >_ Shell*). It picks the next free
+ID and the default container storage, downloads the template, creates the container with the features Docker
+needs (**nesting** and **keyctl**), starts it on boot, and installs Docker inside it:
 
-O código está em https://github.com/luisf4/stream-app (público). **No console do container**:
+```
+CTID=$(pvesh get /cluster/nextid)
+STORAGE=$(pvesm status -content rootdir | awk 'NR>1 {print $1; exit}')
+pveam update
+TEMPLATE=$(pveam available --section system | awk '/debian-12-standard/ {print $2}' | sort -V | tail -n1)
+pveam download local "$TEMPLATE"
+read -rsp "Container root password: " PW; echo
+pct create "$CTID" "local:vztmpl/$TEMPLATE" \
+  --hostname resenha \
+  --cores 2 --memory 2048 --swap 512 \
+  --rootfs "$STORAGE:16" \
+  --net0 name=eth0,bridge=vmbr0,ip=dhcp \
+  --nameserver "1.1.1.1 8.8.8.8" \
+  --features nesting=1,keyctl=1 \
+  --unprivileged 1 --onboot 1 \
+  --password "$PW"
+pct start "$CTID"
+sleep 10
+pct exec "$CTID" -- bash -c "apt-get update && apt-get install -y curl git && curl -fsSL https://get.docker.com | sh"
+echo "Container $CTID ready. IP: $(pct exec "$CTID" -- hostname -I)"
+```
+
+If your network bridge isn't called `vmbr0`, change it (see *node → System → Network*). DHCP is fine: nothing
+points at the container's IP.
+
+<details>
+<summary>Creating it from the web UI instead</summary>
+
+1. **local → CT Templates → Templates**: download `debian-12-standard`.
+2. **Create CT**: 16 GB disk, 2 cores, 2048 MB RAM, 512 MB swap, DHCP, DNS `1.1.1.1`.
+3. **Before starting it**, enable **nesting** and **keyctl** in **Options → Features**.
+4. Start it, open the **Console**, and install Docker:
+   `apt-get update && apt-get install -y curl git && curl -fsSL https://get.docker.com | sh`
+
+</details>
+
+---
+
+## 5. Get the code into the container
+
+### Option A: from GitHub (recommended)
+
+In the **container console**:
 
 ```bash
-apt-get install -y git && git clone https://github.com/luisf4/stream-app.git /root/resenha && cd /root/resenha/deploy/cloudflare
+git clone https://github.com/luisf4/stream-app.git /root/resenha && cd /root/resenha/deploy/cloudflare
 ```
 
-Senhas e tokens do projeto não vão para o GitHub (os `.env` estão no `.gitignore`), então o repositório
-pode ser público sem problema.
+Secrets never go to Git (every `.env` file is git-ignored), so a public repository is safe.
 
-Para atualizar depois: `cd /root/resenha && git pull && cd deploy/cloudflare && docker compose up -d --build`.
+### Option B: without Git (tarball)
 
-### Opção B — sem GitHub (arquivo compactado)
-
-Só as pastas `server/` e `deploy/` são necessárias.
-
-**No seu PC (PowerShell)**, na pasta do projeto, empacote e envie para o host Proxmox:
+Only `server/` and `deploy/` are needed. On your **Windows PC (PowerShell)**, in the project folder:
 
 ```bash
 tar -czf resenha.tar.gz --exclude=node_modules --exclude=dist --exclude=data --exclude=.env server deploy
 ```
 
 ```bash
-scp resenha.tar.gz root@IP_DO_PROXMOX:/root/
+scp resenha.tar.gz root@PROXMOX_IP:/root/
 ```
 
-**No shell do host Proxmox**, copie para dentro do container (troque `101` pelo ID do container):
+On the **Proxmox host shell** (replace `102` with your container ID):
 
-```bash
-pct push 101 /root/resenha.tar.gz /root/resenha.tar.gz
+```
+pct push 102 /root/resenha.tar.gz /root/resenha.tar.gz
 ```
 
-**No console do container:**
+In the **container console**:
 
 ```bash
 mkdir -p /root/resenha && tar -xzf /root/resenha.tar.gz -C /root/resenha && cd /root/resenha/deploy/cloudflare
@@ -131,166 +168,214 @@ mkdir -p /root/resenha && tar -xzf /root/resenha.tar.gz -C /root/resenha && cd /
 
 ---
 
-## 6. Rodar o instalador
+## 6. Run the installer
 
-Ainda no container, em `/root/resenha/deploy/cloudflare`:
+In the container, inside `/root/resenha/deploy/cloudflare`:
 
 ```bash
 bash install.sh
 ```
 
-Responda:
+The prompts are in Portuguese:
 
-| Pergunta | O que colocar |
-|----------|---------------|
-| Nome do servidor, senha, canais | como quiser |
-| Endereço do app | `resenha.seudominio.com` |
-| Endereço da voz | aperte Enter (usa `voz.seudominio.com`) |
-| Token do túnel | o token do passo 3 |
-| Turn Token ID / API Token | os valores do passo 2 |
+| Prompt | Meaning | What to enter |
+|---|---|---|
+| `Nome do servidor` | Server name | Shown at the top of the app |
+| `Senha para os amigos entrarem` | Password | The password your friends will use (baked into the installer later) |
+| `Canais de voz` | Voice channels | Initial channels, e.g. `General,Games,Movies` (manage them later from the app) |
+| `Endereço do app` | App address | `resenha.yourdomain.com` |
+| `Endereço da voz` | Voice address | Press Enter to use `voz.yourdomain.com` |
+| `Token do túnel` | Tunnel token | The token from step 3 |
+| `Turn Token ID` / `API Token` | TURN credentials | The values from step 2 |
 
-O instalador instala o Docker, gera as chaves do LiveKit, sobe `app`, `livekit` e `cloudflared`
-e agenda o `ip-watch.sh`, que reinicia o LiveKit sozinho se o IP da sua casa mudar ou se o LiveKit
-não estiver anunciando o IP certo.
+The installer:
 
-### Os arquivos `.env` (não vão pelo GitHub)
+1. installs Docker and cron if missing;
+2. generates the LiveKit keys and the JWT secret, and writes `deploy/cloudflare/.env` (mode `600`);
+3. starts `app`, `livekit` and `cloudflared`;
+4. schedules `ip-watch.sh` every 2 minutes, which restarts LiveKit when the home IP changes, or when LiveKit
+   isn't advertising the right public IP.
 
-Os `.env` guardam senhas e tokens, por isso ficam fora do Git. Cada um vive num lugar:
-
-| Arquivo | Onde fica | Como chega lá |
-|---------|-----------|---------------|
-| `deploy/cloudflare/.env` | **no container** | o `install.sh` cria a partir das suas respostas (forma recomendada) **ou** você envia um pronto (abaixo) |
-| `client/.env` | **no seu PC** | você cria a partir do `client/.env.example`; é usado só na hora de gerar o `.exe` |
-| `server/.env` | **no seu PC** | só para testes locais; não precisa ir para o servidor |
-
-**Se preferir mandar o `deploy/cloudflare/.env` pronto** em vez de responder às perguntas
-(o `install.sh` pula as perguntas quando o arquivo já existe):
-
-1. No seu PC, copie o modelo e preencha todos os valores (gere `JWT_SECRET` e `LIVEKIT_API_SECRET`
-   com textos aleatórios de 32+ caracteres):
-
-   ```bash
-   copy deploy\cloudflare\.env.example deploy\cloudflare\.env
-   ```
-
-2. Envie para o host Proxmox (PowerShell, na pasta do projeto):
-
-   ```bash
-   scp deploy\cloudflare\.env root@IP_DO_PROXMOX:/root/resenha.env
-   ```
-
-3. No **shell do Proxmox**, coloque dentro do container (troque `101` pelo ID) e apague a cópia do host:
-
-   ```
-   pct push 101 /root/resenha.env /root/resenha/deploy/cloudflare/.env --perms 600 && rm /root/resenha.env
-   ```
-
-4. No container, rode o `bash install.sh` normalmente.
-
-**Alternativa sem `scp`:** no console do container, abra o editor e cole o conteúdo:
-
-```bash
-nano /root/resenha/deploy/cloudflare/.env
-```
-
-(cole com o botão direito, salve com `Ctrl+O`, `Enter`, e saia com `Ctrl+X`; depois `chmod 600 .env`)
-
-> Guarde uma cópia do `deploy/cloudflare/.env` do servidor num lugar seguro (gerenciador de senhas):
-> se perder o container, é com ele que você restaura tudo junto com a pasta `data/`.
-
-### Conferir
+### Verify
 
 ```bash
 docker compose ps
 ```
 
-Os três serviços devem aparecer como `running`, e no painel do Cloudflare o túnel deve estar **HEALTHY**.
-Abra no navegador `https://resenha.seudominio.com/api/health`: deve aparecer `{"ok":true}`.
+All three services should be `running`, and the tunnel should show as **HEALTHY** in the Cloudflare dashboard.
+Opening `https://resenha.yourdomain.com/api/health` should return `{"ok":true}`.
 
-O log do servidor confirma que o TURN está ativo:
+LiveKit must map your **public IP onto the LAN interface**:
+
+```bash
+docker compose logs livekit | grep "using external IPs" | tail -n1
+```
+
+Expected: something like `"ips": ["179.x.x.x/192.168.x.x"], "advertiseInternalIP": true`.
+
+The app server log confirms TURN is enabled:
 
 ```bash
 docker compose logs app | grep pronto
 ```
 
-Deve terminar com `(mídia via TURN do Cloudflare)`.
+It should end with `(mídia via TURN do Cloudflare)` ("media via Cloudflare TURN").
+
+### About the `.env` files
+
+The `.env` files hold passwords and tokens, so they stay out of Git. Each one lives in a different place:
+
+| File | Where it lives | How it gets there |
+|---|---|---|
+| `deploy/cloudflare/.env` | **in the container** | created by `install.sh` from your answers (recommended), **or** sent ready-made (below) |
+| `client/.env` | **on your PC** | created from `client/.env.example`; only used when building the installer |
+| `server/.env` | **on your PC** | local development only |
+
+To send a ready-made `deploy/cloudflare/.env` instead of answering prompts (`install.sh` skips the questions
+when the file already exists): fill in `deploy/cloudflare/.env.example` on your PC (generate `JWT_SECRET` and
+`LIVEKIT_API_SECRET` as random strings of 32+ characters), then copy it into the container:
+
+```bash
+scp deploy\cloudflare\.env root@PROXMOX_IP:/root/resenha.env
+```
+
+```
+pct push 102 /root/resenha.env /root/resenha/deploy/cloudflare/.env --perms 600 && rm /root/resenha.env
+```
+
+> Keep a copy of the server's `.env` somewhere safe (e.g. a password manager). Together with the `data/`
+> folder, it's all you need to restore the server.
 
 ---
 
-## 7. Gerar o app para os amigos
+## 7. Build the app for your friends
 
-No seu PC, crie o `client/.env` (copie de `client/.env.example`):
+On your PC, create `client/.env` from `client/.env.example`:
 
 ```ini
-VITE_SERVER_URL=resenha.seudominio.com
-VITE_SERVER_PASSWORD=a-senha-do-passo-6
+VITE_SERVER_URL=resenha.yourdomain.com
+VITE_SERVER_PASSWORD=the-password-from-step-6
 ```
 
-E gere o instalador:
+Build the installer:
 
 ```bash
 cd client
 npm run dist
 ```
 
-Mande `client/dist/Resenha-Setup-1.0.0.exe` para os amigos. Eles só digitam o apelido.
-O endereço da voz e o TURN não entram no app: o servidor passa tudo automaticamente.
+Send `client/dist/Resenha-Setup-1.0.0.exe` to your friends; they only type a nickname. The voice address and the
+TURN credentials are not in the app: the server hands them out at login.
+
+The installer isn't code-signed, so Windows SmartScreen will warn on first run: **More info → Run anyway**.
+Anyone with the `.exe` can join the server, because the password is inside it, so share it only with your friends.
 
 ---
 
-## Manutenção
+## Bandwidth and stream quality
 
-Todos os comandos são rodados em `/root/resenha/deploy/cloudflare` no container.
+With the media server at home, **every viewer's copy of a stream leaves through your home upload**:
 
-| Tarefa | Comando |
-|--------|---------|
-| Ver logs do servidor | `docker compose logs -f app` |
-| Ver logs da voz | `docker compose logs -f livekit` |
-| Ver logs do túnel | `docker compose logs -f cloudflared` |
-| Aplicar mudanças no `.env` | `docker compose up -d` |
-| Atualizar depois de mudar o código (envie `server/` de novo) | `docker compose up -d --build` |
-| Atualizar LiveKit e cloudflared | `docker compose pull && docker compose up -d` |
-| Backup (mensagens + arquivos) | `tar -czf /root/backup-resenha-$(date +%F).tar.gz data .env` |
+| Quality | Per viewer |
+|---|---|
+| 1080p 30 fps | ~4.5 Mbps |
+| 720p 30 fps | ~2.5 Mbps |
 
-Dica: agende um **Backup** do container no Proxmox (Datacenter → Backup), que já leva tudo junto.
+Example: with 13 Mbps of upload, 1080p comfortably serves ~2 viewers and 720p ~4. Leave ~30% headroom.
 
-Trocar a senha **desloga todo mundo**. Atualize também `VITE_SERVER_PASSWORD` no `client/.env`
-e mande um instalador novo.
+Measure your upload from the container:
 
-O uso do TURN aparece no painel do Cloudflare em **Realtime → TURN Server**.
+```bash
+apt install -y speedtest-cli && speedtest-cli --secure --simple
+```
 
----
+TURN usage (shown in Cloudflare under **Realtime → TURN Server**): a 1080p stream with 3 viewers relays up to
+~8 GB/hour, so the 1,000 GB free tier covers ~120 hours/month. Voice is negligible.
 
-## Problemas comuns
+### Checking how each person is connected
 
-| Sintoma | Causa provável | Solução |
-|---------|----------------|---------|
-| Docker não sobe no LXC (`permission denied`, erro de `sysctl` ou `overlay`) | Faltou **nesting/keyctl** | Desligue o container, marque em Options → Features e ligue de novo (ou use uma VM) |
-| Túnel aparece **DOWN** / **INACTIVE** | Token errado ou sem internet | `docker compose logs cloudflared`; corrija `CLOUDFLARE_TUNNEL_TOKEN` no `.env` e `docker compose up -d` |
-| Erro **502 Bad Gateway** | Public Hostname apontando errado | `resenha` → `localhost:3000` e `voz` → `localhost:7880`, ambos tipo `HTTP` |
-| Ao entrar na voz: "Falha ao preparar a conexão de voz (TURN)" | Turn Token ID ou API Token errados | Veja `docker compose logs app`; corrija `CLOUDFLARE_TURN_*` no `.env` e `docker compose up -d` |
-| Voz fica em "Conectando…" e cai | O LiveKit não associou o IP público da casa à interface da rede local | Em `docker compose logs livekit`, a última linha `using external IPs` deve mostrar `SEU_IP_PUBLICO/192.168.x.x`. O `ip-watch.sh` confere isso a cada 2 minutos e reinicia o LiveKit se estiver errado (histórico em `ip-watch.log`) |
-| `ip-watch.log` cheio de `Resolving timed out` | O DNS do container está falhando (isso também atrapalha o LiveKit a descobrir o IP) | No shell do Proxmox: `pct set ID --nameserver "1.1.1.1 8.8.8.8"` e reinicie o container |
-| A voz parou depois que a internet caiu e voltou | O IP de casa mudou | O `ip-watch.sh` reinicia o LiveKit sozinho em até 2 minutos |
-| App diz "Não foi possível conectar ao servidor", mas o endereço funciona para outras pessoas | A rede guardou a resposta antiga de "não existe" (de antes da rota existir) | `ipconfig /flushdns`; se o `nslookup resenha.seudominio.com` ainda disser *Non-existent domain*, reinicie o roteador (ou o AdGuard/Pi-hole) ou espere até 30 min |
-| Mesmo erro num PC com **VPN** (ex: Proton, DNS `10.2.0.1`) e o `nslookup` só mostra endereços IPv6 (`2606:...`) | O DNS da VPN guardou a resposta antiga e a VPN bloqueia IPv6 | Desligue a VPN, ou exclua o Resenha no *Split Tunneling* da VPN (melhor também para a voz) |
-| Upload falha com arquivo grande | Limite de 100 MB do Cloudflare (plano grátis) | Mantenha `MAX_UPLOAD_MB=95` |
-| `install.sh: $'\r': command not found` | Arquivo com quebras de linha do Windows | `sed -i 's/\r$//' install.sh` |
+In a call, hover over a video and click the **stats icon**. The `Conexão` ("Connection") line shows:
+
+- `host UDP`: direct connection on the same LAN as the server (no upload used)
+- `TURN via UDP`: through Cloudflare's relay (normal for friends outside your network)
+- `TURN via TCP` / `TLS`: fallback for networks that block UDP (works, but stutters more on packet loss)
+
+The same panel shows fps, bitrate, packet loss and `Limitado por` ("limited by": `CPU` or `banda`, i.e. bandwidth).
 
 ---
 
-## Alternativa: sem Cloudflare, abrindo portas
+## After a reboot
 
-Se um dia preferir não usar o Cloudflare, dá para rodar no mesmo container com as portas abertas no
-roteador e um endereço grátis do **DuckDNS** (que acompanha a troca de IP de casa):
+Everything comes back on its own:
 
-1. Confirme que sua internet **não tem CGNAT**: o IP em https://api.ipify.org deve ser igual ao IP WAN
-   mostrado no roteador. Se for diferente, peça "IP público" para a operadora.
-2. Crie um subdomínio em https://www.duckdns.org e anote o token
-3. Dê **IP fixo** ao container e encaminhe no roteador para ele: **TCP 80, 443, 7881** e **UDP 50000-50100**
-4. No container, use a pasta `deploy/` (não a `deploy/cloudflare/`) e rode `bash install.sh`,
-   informando o subdomínio e o token do DuckDNS
-5. No `client/.env`, use `VITE_SERVER_URL=seusubdominio.duckdns.org`
+| Piece | Why it restarts automatically |
+|---|---|
+| The container | Created with `onboot: 1` (check with `pct config 102 \| grep onboot`) |
+| Docker and cron | Enabled services (check with `systemctl is-enabled docker cron`) |
+| `app`, `livekit`, `cloudflared` | `restart: unless-stopped` in Docker Compose |
+| `ip-watch.sh` | Runs from cron every 2 minutes |
 
-O `deploy/duckdns.sh` atualiza o IP no DuckDNS a cada 5 minutos e reinicia o LiveKit quando ele muda.
-Manutenção e problemas comuns desse modo estão no [DEPLOY.md](DEPLOY.md).
+If LiveKit starts before the network is fully up and picks a wrong IP, `ip-watch.sh` fixes it within 2 minutes:
+the website and chat work right away, but voice may need a couple of minutes.
+Services you stop manually (`docker compose stop`/`down`) stay stopped until `docker compose up -d`.
+
+---
+
+## Maintenance
+
+All commands run in `/root/resenha/deploy/cloudflare` inside the container.
+
+| Task | Command |
+|---|---|
+| Update to the latest code | `cd /root/resenha && git pull && cd deploy/cloudflare && docker compose up -d --build` |
+| App server logs | `docker compose logs -f app` |
+| LiveKit logs | `docker compose logs -f livekit` |
+| Tunnel logs | `docker compose logs -f cloudflared` |
+| IP watchdog history | `cat ip-watch.log` |
+| Apply `.env` changes | `docker compose up -d` |
+| Update LiveKit and cloudflared images | `docker compose pull && docker compose up -d` |
+| Back up messages and files | `tar -czf /root/backup-resenha-$(date +%F).tar.gz data .env` |
+
+Tip: schedule a Proxmox backup of the container (**Datacenter → Backup**); it includes everything.
+
+Changing the password **logs everyone out**. Also update `VITE_SERVER_PASSWORD` in `client/.env`, rebuild the
+installer and send it again: old installers will show *"A senha embutida neste app está desatualizada"*
+("the password embedded in this app is outdated").
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Docker won't start in the LXC (`permission denied`, `sysctl` or `overlay` errors) | **nesting/keyctl** not enabled | Stop the container, enable them in **Options → Features**, start it again (or use a VM) |
+| Tunnel shows **DOWN** / **INACTIVE** | Wrong token or no internet | `docker compose logs cloudflared`; fix `CLOUDFLARE_TUNNEL_TOKEN` in `.env`, then `docker compose up -d` |
+| **502 Bad Gateway** | Route pointing to the wrong service | `resenha` → `http://localhost:3000`, `voz` → `http://localhost:7880` |
+| Route URL rejected: *Invalid service URL format* | Missing protocol | Use `http://localhost:3000` (with `http://`) |
+| Joining voice shows *"Falha ao preparar a conexão de voz (TURN)"* | Wrong Turn Token ID / API Token | Check `docker compose logs app`; fix `CLOUDFLARE_TURN_*` in `.env`, then `docker compose up -d` |
+| Voice stuck on *"Conectando…"* ("connecting") | LiveKit didn't map the public IP onto the LAN interface | The last `using external IPs` line must show `PUBLIC_IP/192.168.x.x`. `ip-watch.sh` checks this every 2 minutes and restarts LiveKit (see `ip-watch.log`) |
+| `ip-watch.log` full of `Resolving timed out` | The container's DNS is failing (this also breaks LiveKit's IP discovery) | On the Proxmox host: `pct set 102 --nameserver "1.1.1.1 8.8.8.8"`, then restart the container |
+| Voice stopped after the internet dropped | The home IP changed | `ip-watch.sh` restarts LiveKit within 2 minutes |
+| Streams stutter / low fps | Not enough home upload, or a weak PC encoding the stream | Open the stats panel: `Limitado por: banda` means bandwidth, so use 720p; `CPU` means the streamer's PC can't keep up |
+| *"Não foi possível conectar ao servidor"* ("couldn't connect to the server") on one PC while it works for others | That network cached a "domain doesn't exist" answer from before the route was created | `ipconfig /flushdns`; if `nslookup resenha.yourdomain.com` still says *Non-existent domain*, restart the router (or your AdGuard/Pi-hole) or wait up to 30 min |
+| Same error on a PC with a **VPN** (e.g. Proton, DNS `10.2.0.1`), and `nslookup` only returns IPv6 addresses | The VPN's DNS cached the old answer, and the VPN blocks IPv6 | Turn the VPN off, or exclude Resenha via the VPN's *Split Tunneling* (also better for voice) |
+| Large uploads fail | Cloudflare free plan limits requests to 100 MB | Keep `MAX_UPLOAD_MB=95` |
+| `install.sh: $'\r': command not found` | Windows line endings | `sed -i 's/\r$//' install.sh ip-watch.sh` |
+
+---
+
+## Alternative: no Cloudflare, with open ports
+
+If you'd rather not use Cloudflare, the same container can run the open-ports stack with a free **DuckDNS**
+hostname that follows your changing home IP:
+
+1. Make sure your connection **isn't behind CGNAT**: the IP at https://api.ipify.org must match the WAN IP shown
+   by your router. If it doesn't, ask your ISP for a public IP.
+2. Create a subdomain at https://www.duckdns.org and copy the token.
+3. Give the container a **static IP** and forward **TCP 80, 443, 7881** and **UDP 50000-50100** to it.
+4. In the container, use the `deploy/` folder (not `deploy/cloudflare/`), run `bash install.sh` and enter the
+   DuckDNS subdomain and token when asked.
+5. In `client/.env`, use `VITE_SERVER_URL=yoursubdomain.duckdns.org`.
+
+`deploy/duckdns.sh` updates DuckDNS every 5 minutes and restarts LiveKit when the IP changes. Maintenance and
+troubleshooting for this mode are in [DEPLOY.md](DEPLOY.md).
