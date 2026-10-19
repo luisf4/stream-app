@@ -8,6 +8,9 @@ rtc:
   use_external_ip: true
   # Sem portas abertas o LiveKit não consegue validar o próprio IP público e deixaria de anunciá-lo.
   skip_external_ip_validation: true
+  # Anuncia também o IP da rede local: quem está na mesma casa do servidor conecta direto,
+  # sem passar pelo Cloudflare — e a transmissão dessa pessoa não gasta o upload da internet.
+  advertise_internal_ip: true
   # Só anuncia endereços da rede de casa. Sem isso ele também usa as redes internas do Docker
   # (172.17.x, 172.18.x) e às vezes associa o IP público a uma delas em vez da interface real —
   # aí o TURN do Cloudflare não alcança o servidor e a voz fica em "Conectando…".

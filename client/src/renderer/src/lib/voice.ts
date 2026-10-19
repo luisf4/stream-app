@@ -71,16 +71,18 @@ function withStartBitrate(sdp: string): string {
 import { reportVoiceState } from './socket'
 import { sounds } from './sounds'
 
-export type ShareQuality = '720p30' | '1080p30' | '1080p60' | '1440p60'
+export type ShareQuality = '720p30' | '720p60' | '1080p30' | '1080p60' | '1440p60'
 
+// A taxa vale por pessoa assistindo e sai do upload de quem hospeda o servidor.
 export const QUALITIES: Record<
   ShareQuality,
   { label: string; width: number; height: number; fps: number; bitrate: number }
 > = {
-  '720p30': { label: '720p 30fps', width: 1280, height: 720, fps: 30, bitrate: 2_500_000 },
-  '1080p30': { label: '1080p 30fps', width: 1920, height: 1080, fps: 30, bitrate: 4_500_000 },
-  '1080p60': { label: '1080p 60fps', width: 1920, height: 1080, fps: 60, bitrate: 7_000_000 },
-  '1440p60': { label: '1440p 60fps', width: 2560, height: 1440, fps: 60, bitrate: 10_000_000 },
+  '720p30': { label: '720p 30fps · ~2,5 Mbps por amigo', width: 1280, height: 720, fps: 30, bitrate: 2_500_000 },
+  '720p60': { label: '720p 60fps · ~4 Mbps por amigo', width: 1280, height: 720, fps: 60, bitrate: 4_000_000 },
+  '1080p30': { label: '1080p 30fps · ~4,5 Mbps por amigo', width: 1920, height: 1080, fps: 30, bitrate: 4_500_000 },
+  '1080p60': { label: '1080p 60fps · ~7 Mbps por amigo', width: 1920, height: 1080, fps: 60, bitrate: 7_000_000 },
+  '1440p60': { label: '1440p 60fps · ~10 Mbps por amigo', width: 2560, height: 1440, fps: 60, bitrate: 10_000_000 },
 }
 
 export interface ShareOptions {
@@ -228,6 +230,18 @@ function cleanup() {
   bump()
 }
 
+/** Só os endereços STUN e TURN por UDP (tira turn:...?transport=tcp e turns:). */
+function udpOnly(servers: RTCIceServer[]): RTCIceServer[] {
+  return servers
+    .map((s) => ({
+      ...s,
+      urls: (Array.isArray(s.urls) ? s.urls : [s.urls]).filter(
+        (u) => u.startsWith('stun:') || (u.startsWith('turn:') && !/transport=tcp/i.test(u)),
+      ),
+    }))
+    .filter((s) => s.urls.length > 0)
+}
+
 export async function joinVoice(channelId: string) {
   const { api, voiceChannelId, settings } = get()
   if (!api) return
@@ -264,16 +278,27 @@ export async function joinVoice(channelId: string) {
     delayCandidates = relay
     const timeouts = relay ? [8_000, 15_000] : [15_000]
 
-    for (const timeout of timeouts) {
+    for (const [index, timeout] of timeouts.entries()) {
       if (get().voiceChannelId !== channelId) return // saiu/trocou enquanto conectava
       const attempt = createRoom()
       room = attempt
       joining = attempt
       wire(attempt)
+      // 1ª tentativa: qualquer caminho — quem está na mesma rede do servidor conecta direto
+      // (sem gastar o upload da casa) e os de fora caem no TURN, só por UDP (por TCP o vídeo
+      // engasga a cada pacote perdido). Se falhar, força o TURN e libera TCP/TLS, para redes
+      // que bloqueiam UDP.
+      const firstTry = index === 0
+      const rtcConfig: RTCConfiguration | undefined = relay
+        ? {
+            iceTransportPolicy: firstTry ? 'all' : 'relay',
+            iceServers: firstTry ? udpOnly(iceServers!) : iceServers!,
+          }
+        : undefined
       try {
         await attempt.connect(url, token, {
           peerConnectionTimeout: timeout,
-          ...(relay ? { rtcConfig: { iceServers: iceServers!, iceTransportPolicy: 'relay' } } : {}),
+          ...(rtcConfig ? { rtcConfig } : {}),
         })
         r = attempt
         lastError = undefined
