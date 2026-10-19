@@ -22,3 +22,21 @@ nsis:
   perMachine: false
   createDesktopShortcut: true
   shortcutName: Resenha
+# macOS: só Apple Silicon (M1/M2/M3...). Precisa rodar num Mac (ou no GitHub Actions).
+# Sem conta paga da Apple: assinatura ad-hoc, sem notarização.
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  icon: resources/icon.png
+  category: public.app-category.social-networking
+  artifactName: Resenha-${version}-mac-arm64.${ext}
+  identity: '-'
+  hardenedRuntime: false
+  notarize: false
+  extendInfo:
+    NSMicrophoneUsageDescription: O Resenha usa o microfone para as chamadas de voz.
+    NSCameraUsageDescription: O Resenha usa a câmera para as chamadas de vídeo.
+    NSAudioCaptureUsageDescription: O Resenha captura o áudio do sistema ao compartilhar a tela.
+dmg:
+  artifactName: Resenha-${version}-mac-arm64.${ext}

@@ -68,7 +68,12 @@ export function registerRoutes(app: FastifyInstance) {
       req.log.error(err, 'falha ao gerar credenciais TURN')
       return reply.code(502).send({ error: 'Falha ao preparar a conexão de voz (TURN)' })
     }
-    return { url: config.livekit.publicUrl, token: await at.toJwt(), iceServers }
+    return {
+      url: config.livekit.publicUrl,
+      token: await at.toJwt(),
+      iceServers,
+      uploadMbps: config.uploadMbps || null,
+    }
   })
 
   app.post('/api/upload', async (req, reply) => {

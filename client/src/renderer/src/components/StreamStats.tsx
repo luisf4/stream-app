@@ -15,6 +15,14 @@ interface Stats {
   lossPct?: number
   dropped?: number
   jitterMs?: number
+  /** quadros por segundo que chegam da captura (antes de codificar) */
+  captureFps?: number
+  /** pedidos de quadro-chave (PLI) e de reenvio (NACK): sobem quando há perda na rede */
+  pli?: number
+  nack?: number
+  resolutionChanges?: number
+  freezes?: number
+  freezeSeconds?: number
 }
 
 const LIMITATION: Record<string, string> = {
@@ -62,7 +70,12 @@ async function readStats(track: Track, prev: Map<string, number>): Promise<Stats
 
   if (outbound) {
     const remote = all.find((s) => s.type === 'remote-inbound-rtp' && s.kind === 'video')
+    const source = byId(outbound.mediaSourceId) ?? all.find((s) => s.type === 'media-source' && s.kind === 'video')
     return {
+      captureFps: source?.framesPerSecond,
+      pli: outbound.pliCount,
+      nack: outbound.nackCount,
+      resolutionChanges: outbound.qualityLimitationResolutionChanges,
       direction: 'envio',
       resolution: outbound.frameWidth ? `${outbound.frameWidth}x${outbound.frameHeight}` : undefined,
       fps: outbound.framesPerSecond,
@@ -91,6 +104,10 @@ async function readStats(track: Track, prev: Map<string, number>): Promise<Stats
     rttMs: pair?.currentRoundTripTime ? Math.round(pair.currentRoundTripTime * 1000) : undefined,
     lossPct: received ? Math.round(((inbound.packetsLost ?? 0) / received) * 1000) / 10 : undefined,
     dropped: inbound.framesDropped,
+    pli: inbound.pliCount,
+    nack: inbound.nackCount,
+    freezes: inbound.freezeCount,
+    freezeSeconds: inbound.totalFreezesDuration,
     jitterMs: inbound.jitter !== undefined ? Math.round(inbound.jitter * 1000) : undefined,
   }
 }
@@ -132,6 +149,8 @@ export function StreamStats({ track }: { track: Track }) {
       {row('Direção', stats.direction)}
       {row('Resolução', stats.resolution)}
       {row('FPS', stats.fps)}
+      {/* captura baixa = o gargalo é capturar a tela (GPU ocupada com o jogo), não codificar */}
+      {row('FPS da captura', stats.captureFps)}
       {row('Taxa', stats.bitrateKbps !== undefined ? `${(stats.bitrateKbps / 1000).toFixed(2)} Mbps` : undefined)}
       {row('Codec', stats.codec)}
       {row(
@@ -146,6 +165,15 @@ export function StreamStats({ track }: { track: Track }) {
       {row('Perda', stats.lossPct !== undefined ? `${stats.lossPct}%` : undefined)}
       {row('Jitter', stats.jitterMs !== undefined ? `${stats.jitterMs} ms` : undefined)}
       {row('Quadros descartados', stats.dropped)}
+      {row('Mudanças de resolução', stats.resolutionChanges)}
+      {row('Pedidos de quadro-chave', stats.pli)}
+      {row('Pedidos de reenvio', stats.nack)}
+      {row(
+        'Travadas',
+        stats.freezes !== undefined
+          ? `${stats.freezes} (${(stats.freezeSeconds ?? 0).toFixed(1)} s no total)`
+          : undefined,
+      )}
     </div>
   )
 }

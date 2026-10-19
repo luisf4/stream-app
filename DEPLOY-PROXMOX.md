@@ -276,12 +276,14 @@ Anyone with the `.exe` can join the server, because the password is inside it, s
 
 With the media server at home, **every viewer's copy of a stream leaves through your home upload**:
 
-| Quality | Per viewer |
-|---|---|
-| 1080p 30 fps | ~4.5 Mbps |
-| 720p 30 fps | ~2.5 Mbps |
+| Quality | Per viewer (text/code) | Per viewer (games/video) |
+|---|---|---|
+| 1080p 30 fps | up to ~4.5 Mbps | up to ~6 Mbps |
+| 720p 30 fps | up to ~2.5 Mbps | up to ~3.5 Mbps |
 
-Example: with 13 Mbps of upload, 1080p comfortably serves ~2 viewers and 720p ~4. Leave ~30% headroom.
+Set `UPLOAD_MBPS` in `.env` to your measured upload: the app then splits ~70% of it among the people in the call
+(the rest is left for voices and overhead) and drops 1080p to 720p when the slice gets small. Example: with
+14 Mbps, one viewer gets the full ~6 Mbps, three get ~3.2 Mbps each, five get ~1.9 Mbps each at 720p.
 
 Measure your upload from the container:
 

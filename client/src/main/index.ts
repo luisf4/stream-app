@@ -11,6 +11,8 @@ import {
   Tray,
   type DesktopCapturerSource,
 } from 'electron'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 // "--profile=2" permite abrir uma segunda instância (com outro login) para testar.
@@ -19,6 +21,17 @@ const profile =
 if (profile) app.setPath('userData', join(app.getPath('appData'), `Resenha-${profile}`))
 
 const iconPath = join(__dirname, '../../resources/icon.png')
+const isMac = process.platform === 'darwin'
+
+const features: string[] = []
+// macOS 13+: áudio do sistema no compartilhamento de tela via ScreenCaptureKit.
+if (isMac) features.push('MacLoopbackAudioForScreenShare')
+// Windows: o LiveKit negocia H.264 "constrained baseline", que sem isto pode cair no OpenH264 (CPU) —
+// e aí jogo e codificador disputam o processador e o FPS da transmissão despenca nas cenas de movimento.
+// Com isto o H.264 vai para a placa de vídeo (Media Foundation) quando ela suporta.
+if (process.platform === 'win32') features.push('MediaFoundationH264CbpEncoding')
+// só um "enable-features" vale: o último sobrescreveria os anteriores
+if (features.length) app.commandLine.appendSwitch('enable-features', features.join(','))
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -81,7 +94,8 @@ function createWindow() {
 }
 
 function createTray() {
-  tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }))
+  const size = isMac ? 18 : 16
+  tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: size, height: size }))
   tray.setToolTip('Resenha')
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -141,6 +155,90 @@ function setupDisplayMedia() {
   })
 }
 
+// ---------- áudio da stream sem as vozes da call (Windows) ----------
+// O loopback do Electron pega todo o som do PC, inclusive as vozes que o próprio app toca, e os
+// amigos se escutavam pela stream. O helper (native/audio-capture) captura tudo MENOS este
+// processo e os filhos dele, e manda PCM float32 48 kHz estéreo pelo stdout.
+
+const audioHelperPath = join(__dirname, '../../resources/bin/resenha-audio.exe').replace(
+  'app.asar',
+  'app.asar.unpacked',
+)
+let audioHelper: ChildProcess | null = null
+
+function stopAudioHelper() {
+  audioHelper?.stdin?.end()
+  audioHelper?.kill()
+  audioHelper = null
+}
+
+ipcMain.handle('screenAudio:start', (event) => {
+  stopAudioHelper()
+  if (process.platform !== 'win32' || !existsSync(audioHelperPath)) return false
+  const sender = event.sender
+  const child = spawn(audioHelperPath, ['--exclude-pid', String(process.pid)], { windowsHide: true })
+  audioHelper = child
+
+  return new Promise<boolean>((resolve) => {
+    let ready = false
+    let leftover = Buffer.alloc(0)
+    const finish = (ok: boolean) => {
+      clearTimeout(timer)
+      if (!ok && audioHelper === child) stopAudioHelper()
+      resolve(ok)
+    }
+    const timer = setTimeout(() => finish(false), 5000)
+
+    child.stderr?.on('data', (data: Buffer) => {
+      const text = data.toString()
+      if (!ready && text.includes('READY')) {
+        ready = true
+        finish(true)
+      } else if (text.trim()) console.warn('[resenha-audio]', text.trim())
+    })
+    child.stdout?.on('data', (chunk: Buffer) => {
+      if (!ready || sender.isDestroyed()) return
+      // só manda quadros inteiros (2 canais × 4 bytes); o resto fica para o próximo pedaço
+      const data = leftover.length ? Buffer.concat([leftover, chunk]) : chunk
+      const usable = data.length - (data.length % 8)
+      leftover = Buffer.from(data.subarray(usable))
+      if (usable) sender.send('screenAudio:data', new Uint8Array(data.subarray(0, usable)))
+    })
+    child.on('error', () => finish(false))
+    child.on('exit', () => {
+      if (audioHelper === child) audioHelper = null
+      if (!ready) finish(false)
+    })
+  })
+})
+
+ipcMain.on('screenAudio:stop', stopAudioHelper)
+
+// ---------- baixar anexos do chat ----------
+// O <a download> não funciona aqui (o arquivo vem de outro domínio, e o app abria o navegador):
+// o download passa pelo Electron, que abre "Salvar como" já com o nome original.
+
+const downloadNames = new Map<string, string>()
+
+ipcMain.on('file:download', (event, { url, name }: { url: string; name: string }) => {
+  if (!/^https?:\/\//i.test(url)) return
+  downloadNames.set(url, name)
+  event.sender.downloadURL(url)
+})
+
+function setupDownloads() {
+  session.defaultSession.on('will-download', (_event, item, webContents) => {
+    const url = item.getURLChain()[0] ?? item.getURL()
+    const name = (downloadNames.get(url) ?? item.getFilename()).replace(/[\\/:*?"<>|]/g, '_')
+    downloadNames.delete(url)
+    item.setSaveDialogOptions({ title: 'Salvar arquivo', defaultPath: join(app.getPath('downloads'), name) })
+    item.once('done', (_e, state) => {
+      if (webContents.isDestroyed() || state === 'cancelled') return
+      webContents.send('file:downloaded', { ok: state === 'completed', path: item.getSavePath() })
+    })
+  })
+}
+
 // ---------- atalhos globais e janela ----------
 
 ipcMain.handle('shortcuts:set', (_event, map: Record<string, string>) => {
@@ -173,15 +271,21 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', showWindow)
+  // macOS: clicar no ícone do Dock reabre a janela escondida na bandeja.
+  app.on('activate', showWindow)
   app.whenReady().then(() => {
-    app.setAppUserModelId('app.resenha.desktop')
+    if (!isMac) app.setAppUserModelId('app.resenha.desktop')
     setupDisplayMedia()
+    setupDownloads()
     createWindow()
     createTray()
   })
   app.on('before-quit', () => {
     quitting = true
   })
-  app.on('will-quit', () => globalShortcut.unregisterAll())
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+    stopAudioHelper()
+  })
   app.on('window-all-closed', () => app.quit())
 }

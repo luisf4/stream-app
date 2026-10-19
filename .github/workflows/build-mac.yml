@@ -1,0 +1,49 @@
+# Gera o instalador do macOS (Apple Silicon / arm64) num Mac do GitHub.
+# Rode em Actions > "Build macOS" > Run workflow, ou crie uma tag v*.
+# O .dmg fica em "Artifacts" no fim da execução.
+#
+# Para embutir o servidor, crie em Settings > Secrets and variables > Actions:
+#   VITE_SERVER_URL e VITE_SERVER_PASSWORD (os mesmos do client/.env)
+name: Build macOS
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  mac:
+    runs-on: macos-latest # já é Apple Silicon (arm64)
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - run: npm ci
+
+      - name: Cria o .env
+        env:
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+          VITE_SERVER_PASSWORD: ${{ secrets.VITE_SERVER_PASSWORD }}
+        run: |
+          echo "VITE_SERVER_URL=$VITE_SERVER_URL" > .env
+          echo "VITE_SERVER_PASSWORD=$VITE_SERVER_PASSWORD" >> .env
+
+      - run: npm run typecheck
+
+      - run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Resenha-mac-arm64
+          path: client/dist/*.dmg
+          retention-days: 14

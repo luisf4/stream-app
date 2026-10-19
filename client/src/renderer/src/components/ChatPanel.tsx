@@ -5,7 +5,7 @@ import { emit, request } from '../lib/socket'
 import type { Attachment, Message } from '../lib/types'
 import { showToast, useStore } from '../store'
 import { Avatar } from './Avatar'
-import { CloseIcon, FileIcon, PaperclipIcon, TrashIcon } from './Icons'
+import { CloseIcon, DownloadIcon, FileIcon, PaperclipIcon, TrashIcon } from './Icons'
 import { ConfirmModal } from './Modal'
 
 const GROUP_WINDOW = 5 * 60_000
@@ -31,7 +31,7 @@ export function ChatPanel({ channelId }: { channelId: string }) {
   const [sending, setSending] = useState(false)
   const [preparing, setPreparing] = useState(0)
   const [dragging, setDragging] = useState(false)
-  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null)
   const [toDelete, setToDelete] = useState<Message | null>(null)
   const [now, setNow] = useState(Date.now())
 
@@ -281,7 +281,16 @@ export function ChatPanel({ channelId }: { channelId: string }) {
       {dragging && <div className="drop-overlay">Solte para enviar</div>}
       {lightbox && (
         <div className="lightbox" onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt="" />
+          <img src={lightbox.src} alt="" />
+          <button
+            className="lightbox-download"
+            onClick={(e) => {
+              e.stopPropagation()
+              window.api.downloadFile(lightbox.src, lightbox.name)
+            }}
+          >
+            <DownloadIcon size={18} /> Baixar
+          </button>
         </div>
       )}
       {toDelete && (
@@ -322,18 +331,27 @@ function AttachmentView({
   attachment: Attachment
   src: string
   onLoad: () => void
-  onOpenImage: (src: string) => void
+  onOpenImage: (image: { src: string; name: string }) => void
 }) {
   if (a.mime.startsWith('image/') && a.mime !== 'image/svg+xml') {
     return (
-      <img
-        className="attachment-image"
-        src={src}
-        alt={a.name}
-        loading="lazy"
-        onLoad={onLoad}
-        onClick={() => onOpenImage(src)}
-      />
+      <div className="attachment-image-wrap">
+        <img
+          className="attachment-image"
+          src={src}
+          alt={a.name}
+          loading="lazy"
+          onLoad={onLoad}
+          onClick={() => onOpenImage({ src, name: a.name })}
+        />
+        <button
+          className="attachment-download icon-btn"
+          title="Baixar"
+          onClick={() => window.api.downloadFile(src, a.name)}
+        >
+          <DownloadIcon size={18} />
+        </button>
+      </div>
     )
   }
   if (a.mime.startsWith('video/')) {
@@ -345,7 +363,14 @@ function AttachmentView({
     return <audio className="attachment-audio" src={src} controls preload="metadata" />
   }
   return (
-    <a className="attachment-file" href={src} download={a.name}>
+    <a
+      className="attachment-file"
+      href={src}
+      onClick={(e) => {
+        e.preventDefault()
+        window.api.downloadFile(src, a.name)
+      }}
+    >
       <FileIcon size={28} />
       <span>
         <b>{a.name}</b>

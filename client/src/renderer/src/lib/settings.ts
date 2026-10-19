@@ -1,11 +1,27 @@
-/** off = nada; basic = filtro do próprio WebRTC; ai = RNNoise (rede neural, bem mais forte) */
-export type NoiseMode = 'off' | 'basic' | 'ai'
+/**
+ * off = nada; basic = filtro do próprio WebRTC; ai = RNNoise (rede neural, bem mais forte);
+ * ai2 = GTCRN (rede neural mais nova, corta menos a voz, mas trabalha em 16 kHz)
+ */
+export type NoiseMode = 'off' | 'basic' | 'ai' | 'ai2'
+
+/** quanto a IA pode abaixar o ruído: leve corta menos a voz, forte tira mais ruído */
+export type NoiseIntensity = 'low' | 'medium' | 'high'
+
+export interface GateSettings {
+  enabled: boolean
+  /** abaixo disso (em dB) o microfone fecha */
+  thresholdDb: number
+}
 
 export interface Settings {
   inputDeviceId: string
   outputDeviceId: string
   videoDeviceId: string
   noiseMode: NoiseMode
+  noiseIntensity: NoiseIntensity
+  /** ganho manual do microfone, em dB */
+  micGainDb: number
+  gate: GateSettings
   /** reduz e converte imagens para WebP antes de enviar no chat */
   optimizeImages: boolean
   echoCancellation: boolean
@@ -26,6 +42,9 @@ export const defaultSettings: Settings = {
   outputDeviceId: 'default',
   videoDeviceId: '',
   noiseMode: 'ai',
+  noiseIntensity: 'medium',
+  micGainDb: 0,
+  gate: { enabled: false, thresholdDb: -50 },
   optimizeImages: true,
   echoCancellation: true,
   autoGainControl: true,
@@ -44,11 +63,14 @@ export function loadSettings(): Settings {
       ...defaultSettings,
       ...saved,
       shortcuts: { ...defaultSettings.shortcuts, ...saved.shortcuts },
+      gate: { ...defaultSettings.gate, ...saved.gate },
     }
   } catch {
     return defaultSettings
   }
 }
+
+export const isAiNoise = (mode: NoiseMode) => mode === 'ai' || mode === 'ai2'
 
 export function saveSettings(settings: Settings) {
   try {

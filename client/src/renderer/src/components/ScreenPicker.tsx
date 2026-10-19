@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { ScreenSource } from '../../../preload'
-import { QUALITIES, startScreenShare, type ShareOptions, type ShareQuality } from '../lib/voice'
+import { QUALITIES, shareBitrate, startScreenShare, type ShareOptions, type ShareQuality } from '../lib/voice'
 import { Modal } from './Modal'
 
 const PREFS_KEY = 'resenha.share'
 
 function loadPrefs(): ShareOptions {
-  const fallback: ShareOptions = { quality: '1080p30', audio: true, hint: 'motion' }
+  const fallback: ShareOptions = { quality: '720p30', audio: true, hint: 'motion' }
   try {
     const saved = { ...fallback, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
     // qualidade salva de uma versão antiga (ex: 1080p60) que não existe mais
@@ -83,7 +83,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
           >
             {Object.entries(QUALITIES).map(([key, q]) => (
               <option key={key} value={key}>
-                {q.label}
+                {`${q.label} · ~${(shareBitrate(key as ShareQuality, prefs.hint) / 1_000_000).toLocaleString('pt-BR')} Mbps por amigo`}
               </option>
             ))}
           </select>

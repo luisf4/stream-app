@@ -7,12 +7,14 @@
   "main": "./out/main/index.js",
   "private": true,
   "scripts": {
-    "dev": "electron-vite dev",
-    "dev:2": "electron-vite dev -- --profile=2",
-    "build": "electron-vite build",
+    "dev": "npm run helper && electron-vite dev",
+    "dev:2": "npm run helper && electron-vite dev -- --profile=2",
+    "helper": "node scripts/build-audio-helper.mjs",
+    "build": "npm run helper && electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac --arm64"
   },
   "devDependencies": {
     "@sapphi-red/web-noise-suppressor": "^0.4.1",

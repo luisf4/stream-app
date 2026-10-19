@@ -8,6 +8,10 @@ rtc:
   # Atrás de um roteador sem portas abertas (Cloudflare) ou sem "NAT loopback", o LiveKit não
   # consegue validar o próprio IP público e deixaria de anunciá-lo — aí o TURN não alcança a mídia.
   skip_external_ip_validation: true
+  # Em congestionamento, reduz a qualidade em vez de pausar o vídeo (pausar = imagem congelada).
+  congestion_control:
+    enabled: true
+    allow_pause: false
 room:
   empty_timeout: 300
   departure_timeout: 20

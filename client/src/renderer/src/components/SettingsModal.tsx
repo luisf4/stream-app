@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { startMicTest } from '../lib/noise'
 import { logout } from '../lib/session'
-import type { NoiseMode } from '../lib/settings'
-import { setNoiseMode, switchDevice } from '../lib/voice'
+import { isAiNoise, type NoiseIntensity, type NoiseMode } from '../lib/settings'
+import { captureOptions, micSettings, setNoiseMode, switchDevice, updateMicSettings } from '../lib/voice'
 import { updateSettings, useStore } from '../store'
 import { LogOutIcon } from './Icons'
 import { Modal } from './Modal'
@@ -51,13 +51,66 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             value={settings.noiseMode}
             onChange={(e) => setNoiseMode(e.target.value as NoiseMode)}
           >
-            <option value="ai">Avançada (IA) — tira teclado, ventilador, barulho de rua</option>
+            <option value="ai">IA (RNNoise) — tira teclado, ventilador, barulho de rua</option>
+            <option value="ai2">IA (GTCRN) — modelo mais novo, voz um pouco mais abafada</option>
             <option value="basic">Padrão — filtro leve do navegador</option>
             <option value="off">Desligada</option>
           </select>
         </label>
-        <MicTest />
+        <label className="field">
+          <span>Intensidade da IA</span>
+          <select
+            value={settings.noiseIntensity}
+            disabled={!isAiNoise(settings.noiseMode)}
+            onChange={(e) => updateMicSettings({ noiseIntensity: e.target.value as NoiseIntensity })}
+          >
+            <option value="low">Leve — preserva mais a voz</option>
+            <option value="medium">Média</option>
+            <option value="high">Forte — tira mais ruído, pode cortar sílabas</option>
+          </select>
+        </label>
       </div>
+      <div className="settings-grid">
+        <label className="field">
+          <span>
+            Volume do microfone: {settings.micGainDb > 0 ? '+' : ''}
+            {settings.micGainDb} dB
+          </span>
+          <input
+            type="range"
+            min={-12}
+            max={24}
+            step={1}
+            value={settings.micGainDb}
+            onChange={(e) => updateMicSettings({ micGainDb: Number(e.target.value) })}
+            onDoubleClick={() => updateMicSettings({ micGainDb: 0 })}
+            title="Duplo clique volta para 0 dB"
+          />
+        </label>
+        <label className="field">
+          <span>Limiar do noise gate: {settings.gate.thresholdDb} dB</span>
+          <input
+            type="range"
+            min={-80}
+            max={-10}
+            step={1}
+            value={settings.gate.thresholdDb}
+            disabled={!settings.gate.enabled}
+            onChange={(e) =>
+              updateMicSettings({ gate: { ...settings.gate, thresholdDb: Number(e.target.value) } })
+            }
+          />
+        </label>
+      </div>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={settings.gate.enabled}
+          onChange={(e) => updateMicSettings({ gate: { ...settings.gate, enabled: e.target.checked } })}
+        />
+        Noise gate — só transmite quando o som passa do limiar (a marca na barra do teste)
+      </label>
+      <MicTest />
       <label className="checkbox">
         <input
           type="checkbox"
@@ -69,14 +122,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       <label className="checkbox">
         <input
           type="checkbox"
-          checked={settings.autoGainControl}
+          checked={settings.autoGainControl && !isAiNoise(settings.noiseMode)}
+          disabled={isAiNoise(settings.noiseMode)}
           onChange={(e) => updateSettings({ autoGainControl: e.target.checked })}
         />
         Ajuste automático de volume do microfone
+        {isAiNoise(settings.noiseMode) && ' (desligado com a IA: use o volume do microfone acima)'}
       </label>
       <p className="hint">
-        A supressão de ruído muda na hora. Eco e volume automático valem a partir da próxima vez que
-        você entrar num canal.
+        Supressão, volume do microfone e noise gate mudam na hora. Eco e volume automático valem a partir
+        da próxima vez que você entrar num canal.
       </p>
 
       <h3 className="settings-section">Atalhos globais (funcionam com o app em segundo plano)</h3>
@@ -148,32 +203,36 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-/** Ouve o próprio microfone (com o modo de supressão escolhido) para comparar. */
+const METER_MIN_DB = -80
+const meterPct = (db: number) => Math.max(0, Math.min(100, ((db - METER_MIN_DB) / -METER_MIN_DB) * 100))
+
+/** Ouve o próprio microfone com o mesmo processamento da call, e mostra o nível e o limiar do gate. */
 function MicTest() {
   const settings = useStore((s) => s.settings)
   const [running, setRunning] = useState(false)
-  const [level, setLevel] = useState(0)
+  const [meter, setMeter] = useState({ db: -100, open: false })
   const [error, setError] = useState('')
-  const stopRef = useRef<(() => void) | null>(null)
+  const testRef = useRef<Awaited<ReturnType<typeof startMicTest>> | null>(null)
+  const capture = captureOptions(settings)
 
   const stop = () => {
-    stopRef.current?.()
-    stopRef.current = null
+    testRef.current?.stop()
+    testRef.current = null
     setRunning(false)
   }
 
   const start = async () => {
     setError('')
     try {
-      stopRef.current = await startMicTest(
+      const current = useStore.getState().settings
+      testRef.current = await startMicTest(
         {
-          deviceId: settings.inputDeviceId,
-          mode: settings.noiseMode,
-          echoCancellation: settings.echoCancellation,
-          autoGainControl: settings.autoGainControl,
-          outputDeviceId: settings.outputDeviceId,
+          deviceId: current.inputDeviceId,
+          mic: micSettings(current),
+          ...captureOptions(current),
+          outputDeviceId: current.outputDeviceId,
         },
-        setLevel,
+        (db, open) => setMeter({ db, open }),
       )
       setRunning(true)
     } catch (err) {
@@ -181,16 +240,23 @@ function MicTest() {
     }
   }
 
-  // troca de modo/microfone durante o teste: reinicia com a configuração nova
+  // troca de microfone ou de opção da captura durante o teste: reabre com a configuração nova
   useEffect(() => {
-    if (!stopRef.current) return
+    if (!testRef.current) return
     stop()
     void start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.noiseMode, settings.inputDeviceId])
+  }, [settings.inputDeviceId, capture.noiseSuppression, capture.autoGainControl, capture.echoCancellation])
+
+  // o resto (IA, intensidade, ganho, gate) muda na hora
+  useEffect(() => {
+    testRef.current?.update(micSettings(settings))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.noiseMode, settings.noiseIntensity, settings.micGainDb, settings.gate])
 
   useEffect(() => stop, [])
 
+  const gateOn = settings.gate.enabled
   return (
     <div className="field">
       <span>Teste de microfone (use fone)</span>
@@ -198,10 +264,16 @@ function MicTest() {
         <button type="button" className="btn ghost-outline" onClick={running ? stop : start}>
           {running ? 'Parar' : 'Testar'}
         </button>
-        <div className="mic-level">
-          <div style={{ width: `${Math.round(level * 100)}%` }} />
+        <div className={`mic-level${gateOn && !meter.open ? ' closed' : ''}`}>
+          <div style={{ width: `${meterPct(meter.db)}%` }} />
+          {gateOn && (
+            <i className="mic-threshold" style={{ left: `${meterPct(settings.gate.thresholdDb)}%` }} />
+          )}
         </div>
       </div>
+      {running && gateOn && (
+        <small className="muted">{meter.open ? 'Gate aberto: transmitindo' : 'Gate fechado: em silêncio'}</small>
+      )}
       {error && <small className="error">{error}</small>}
     </div>
   )

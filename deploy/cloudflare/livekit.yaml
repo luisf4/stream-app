@@ -19,6 +19,10 @@ rtc:
     includes:
       - 192.168.0.0/16
       - 10.0.0.0/8
+  # Em congestionamento, reduz a qualidade em vez de pausar o vídeo (pausar = imagem congelada).
+  congestion_control:
+    enabled: true
+    allow_pause: false
 room:
   empty_timeout: 300
   departure_timeout: 20

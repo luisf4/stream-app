@@ -11,3 +11,5 @@ deploy/duckdns.log
 deploy/cloudflare/data/
 deploy/cloudflare/.last_ip
 deploy/cloudflare/ip-watch.log
+# gerado por client/scripts/build-audio-helper.mjs
+client/resources/bin/

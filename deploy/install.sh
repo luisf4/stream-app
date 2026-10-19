@@ -67,6 +67,9 @@ LIVEKIT_API_KEY=API$(openssl rand -hex 6)
 LIVEKIT_API_SECRET=$(openssl rand -hex 32)
 CHANNELS=${CHANNELS}
 MAX_UPLOAD_MB=100
+# Upload da internet do servidor, em Mbps (0 = sem limite). Com ele o app divide a taxa da
+# transmissão de tela entre quem está na call, em vez de estourar o upload e travar a imagem.
+UPLOAD_MBPS=0
 DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN}
 DUCKDNS_TOKEN=${DUCKDNS_TOKEN}
 EOF

@@ -1,5 +1,4 @@
 import {
-  AudioPresets,
   Room,
   RoomEvent,
   setLogLevel,
@@ -11,8 +10,9 @@ import {
   type RemoteParticipant,
 } from 'livekit-client'
 import { showToast, updateSettings, useStore } from '../store'
-import { noiseAudioContext, RnnoiseProcessor } from './noise'
-import type { NoiseMode } from './settings'
+import { MicProcessor, noiseAudioContext, type MicSettings } from './noise'
+import { startScreenAudio, stopScreenAudio } from './screenAudio'
+import { isAiNoise, type NoiseMode, type Settings } from './settings'
 
 // No modo de desenvolvimento, mostra no console cada passo da conexão de voz.
 if (import.meta.env.DEV) setLogLevel('debug')
@@ -27,8 +27,9 @@ let delayCandidates = false
 
 // O controle de banda do WebRTC começa em ~300 kbps e sobe devagar: sem isto, toda transmissão de
 // tela passava quase um minuto borrada (320x180) antes de chegar na qualidade escolhida. O Chrome
-// aceita a taxa inicial no SDP (x-google-start-bitrate, em kbps) dos codecs de vídeo.
-const START_BITRATE_KBPS = 3000
+// aceita a taxa inicial no SDP (x-google-start-bitrate, em kbps) dos codecs de vídeo. Acompanha a
+// qualidade da transmissão (ver startScreenShare): começa em ~60% da taxa alvo, o resto ele sobe rápido.
+let startBitrateKbps = 3000
 
 function withStartBitrate(sdp: string): string {
   const lines = sdp.split('\r\n')
@@ -43,7 +44,7 @@ function withStartBitrate(sdp: string): string {
     .map((line) => {
       const fmtp = line.match(/^a=fmtp:(\d+) /)
       if (!fmtp || !videoPayloads.has(fmtp[1]) || line.includes('x-google-start-bitrate')) return line
-      return `${line};x-google-start-bitrate=${START_BITRATE_KBPS}`
+      return `${line};x-google-start-bitrate=${startBitrateKbps}`
     })
     .join('\r\n')
 }
@@ -73,13 +74,59 @@ import { sounds } from './sounds'
 
 export type ShareQuality = '1080p30' | '720p30'
 
-// A taxa vale por pessoa assistindo e sai do upload de quem hospeda o servidor.
+// A taxa vale por pessoa assistindo e sai do upload de quem hospeda o servidor. Jogo com muito
+// movimento precisa de mais bits que texto parado. É o teto: com UPLOAD_MBPS configurado no servidor,
+// a taxa real é dividida entre quem está na call (ver fitShareToUpload).
 export const QUALITIES: Record<
   ShareQuality,
-  { label: string; width: number; height: number; fps: number; bitrate: number }
+  { label: string; width: number; height: number; fps: number; bitrate: number; motionBitrate: number }
 > = {
-  '1080p30': { label: '1080p 30fps · ~4,5 Mbps por amigo', width: 1920, height: 1080, fps: 30, bitrate: 4_500_000 },
-  '720p30': { label: '720p 30fps · ~2,5 Mbps por amigo', width: 1280, height: 720, fps: 30, bitrate: 2_500_000 },
+  '1080p30': { label: '1080p 30fps', width: 1920, height: 1080, fps: 30, bitrate: 4_500_000, motionBitrate: 6_000_000 },
+  '720p30': { label: '720p 30fps', width: 1280, height: 720, fps: 30, bitrate: 2_500_000, motionBitrate: 3_500_000 },
+}
+
+export function shareBitrate(quality: ShareQuality, hint: ShareOptions['hint']) {
+  const q = QUALITIES[quality]
+  return hint === 'motion' ? q.motionBitrate : q.bitrate
+}
+
+/** Upload de onde o LiveKit roda, em bps (0 = sem limite). Vem do servidor junto com o token. */
+let uploadBps = 0
+// Só ~70% do upload vai para a tela: o resto fica para as vozes, o áudio da transmissão, o chat e a
+// sobra do TURN. Passando disso a fila do roteador enche, os pacotes se perdem e a imagem trava.
+const UPLOAD_SHARE = 0.7
+const SCREEN_AUDIO_BPS = 96_000
+const MIN_SHARE_BPS = 800_000
+/** Abaixo disso, 1080p vira borrão quadriculado: sai mais nítido mandar 720p. */
+const DOWNSCALE_BELOW_BPS = 3_000_000
+
+/** taxa pedida na transmissão atual (o teto da qualidade escolhida) */
+let shareCeiling = 0
+
+/** Taxa da tela por amigo: o teto da qualidade, ou a fatia do upload do servidor se for menor. */
+function fittedBitrate(ceiling: number) {
+  if (!uploadBps || !room) return ceiling
+  const viewers = Math.max(room.remoteParticipants.size, 1)
+  const slice = (uploadBps * UPLOAD_SHARE) / viewers - SCREEN_AUDIO_BPS
+  return Math.round(Math.min(ceiling, Math.max(slice, MIN_SHARE_BPS)))
+}
+
+/** Reajusta a taxa (e, se precisar, a resolução) da tela quando alguém entra ou sai da call. */
+async function fitShareToUpload() {
+  const track = room?.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track
+  const sender = track?.sender
+  if (!sender || !shareCeiling) return
+  const bitrate = fittedBitrate(shareCeiling)
+  const height = track.mediaStreamTrack.getSettings().height ?? 0
+  const scale = height > 720 && bitrate < DOWNSCALE_BELOW_BPS ? height / 720 : 1
+
+  const params = sender.getParameters()
+  const encoding = params.encodings?.[0]
+  if (!encoding) return
+  if (encoding.maxBitrate === bitrate && (encoding.scaleResolutionDownBy ?? 1) === scale) return
+  encoding.maxBitrate = bitrate
+  encoding.scaleResolutionDownBy = scale
+  await sender.setParameters(params).catch(() => {})
 }
 
 export interface ShareOptions {
@@ -234,15 +281,18 @@ function wire(r: Room) {
     )
     .on(RoomEvent.ParticipantConnected, () => {
       play('join')
+      void fitShareToUpload()
       bump()
     })
     .on(RoomEvent.ParticipantDisconnected, () => {
       play('leave')
+      void fitShareToUpload()
       bump()
     })
     .on(RoomEvent.Reconnecting, () => set({ voiceStatus: 'reconnecting' }))
     .on(RoomEvent.Reconnected, () => {
       set({ voiceStatus: 'connected' })
+      void fitShareToUpload()
       reportVoiceState()
     })
     .on(RoomEvent.LocalTrackUnpublished, (pub) => {
@@ -315,22 +365,21 @@ export async function joinVoice(channelId: string) {
       dynacast: true,
       audioCaptureDefaults: {
         deviceId: settings.inputDeviceId || undefined,
-        // no modo "ai" o RNNoise faz o trabalho; o filtro do WebRTC junto só piora a voz
-        noiseSuppression: settings.noiseMode === 'basic',
-        echoCancellation: settings.echoCancellation,
-        autoGainControl: settings.autoGainControl,
+        ...captureOptions(settings),
       },
       videoCaptureDefaults: {
         deviceId: settings.videoDeviceId || undefined,
         resolution: VideoPresets.h720.resolution,
       },
-      publishDefaults: { dtx: true, red: true },
+      // sem DTX: com a supressão de ruído o fim das frases fica bem baixo, e o DTX cortava ali
+      publishDefaults: { dtx: false, red: true },
     })
 
   let r: Room | null = null
   let lastError: unknown
   try {
-    const { url, token, iceServers } = await api.livekitToken(channelId)
+    const { url, token, iceServers, uploadMbps } = await api.livekitToken(channelId)
+    uploadBps = (uploadMbps ?? 0) * 1_000_000
     // Com TURN configurado no servidor (Cloudflare Tunnel, sem portas abertas), a mídia só chega
     // ao LiveKit pelo retransmissor (ver CANDIDATE_DELAY_MS). Se a 1ª tentativa ainda assim não
     // fechar em 8 s, tentamos de novo em vez de esperar os 15 s padrão.
@@ -392,7 +441,7 @@ export async function joinVoice(channelId: string) {
   if (!muted && !deafened) {
     try {
       await r.localParticipant.setMicrophoneEnabled(true)
-      await applyNoiseFilter()
+      await applyMicProcessing()
     } catch (err) {
       set({ muted: true })
       showToast(`Microfone indisponível: ${errorText(err)}`)
@@ -417,7 +466,7 @@ export async function leaveVoice(silent = false) {
 async function setMic(enabled: boolean) {
   try {
     await room?.localParticipant.setMicrophoneEnabled(enabled)
-    if (enabled) await applyNoiseFilter()
+    if (enabled) await applyMicProcessing()
   } catch (err) {
     showToast(`Microfone indisponível: ${errorText(err)}`)
   }
@@ -429,41 +478,64 @@ function micTrack(): LocalAudioTrack | undefined {
     | undefined
 }
 
-/** Liga ou desliga o RNNoise no microfone conforme a configuração. */
-async function applyNoiseFilter() {
+/**
+ * Opções da captura do microfone. No modo "básico" o filtro do WebRTC faz a supressão; com IA ele fica
+ * desligado (junto só piora a voz), e o volume automático também: nas pausas ele subia o ruído de
+ * fundo e a IA cortava mais forte justo no começo e no fim das frases. Nesse caso vale o ganho manual.
+ */
+export function captureOptions(settings: Settings) {
+  return {
+    noiseSuppression: settings.noiseMode === 'basic',
+    echoCancellation: settings.echoCancellation,
+    autoGainControl: settings.autoGainControl && !isAiNoise(settings.noiseMode),
+  }
+}
+
+export function micSettings(settings: Settings): MicSettings {
+  const { noiseMode, noiseIntensity, micGainDb, gate } = settings
+  return { noiseMode, noiseIntensity, micGainDb, gate }
+}
+
+/** Ganho, supressão por IA e noise gate no microfone da call, conforme a configuração. */
+async function applyMicProcessing() {
   const track = micTrack()
   if (!track) return
-  const want = get().settings.noiseMode === 'ai'
-  const active = track.getProcessor()?.name === 'rnnoise'
+  const mic = micSettings(get().settings)
+  const current = track.getProcessor()
   try {
-    if (want && !active) {
+    if (current instanceof MicProcessor) {
+      await current.update(mic)
+    } else {
       await track.setAudioContext(noiseAudioContext())
-      await track.setProcessor(new RnnoiseProcessor())
-    } else if (!want && active) {
-      await track.stopProcessor()
+      await track.setProcessor(new MicProcessor(mic))
     }
   } catch (err) {
-    showToast(`Supressão de ruído indisponível: ${errorText(err)}`)
+    showToast(`Processamento do microfone indisponível: ${errorText(err)}`)
   }
+}
+
+/** Muda ganho, intensidade da IA ou noise gate na hora, mesmo no meio de uma chamada. */
+export function updateMicSettings(patch: Partial<Pick<Settings, 'micGainDb' | 'noiseIntensity' | 'gate'>>) {
+  updateSettings(patch)
+  void applyMicProcessing()
 }
 
 /** Troca o modo de supressão de ruído na hora, mesmo no meio de uma chamada. */
 export async function setNoiseMode(mode: NoiseMode) {
+  const before = captureOptions(get().settings)
   updateSettings({ noiseMode: mode })
+  const after = captureOptions(get().settings)
   const track = micTrack()
   if (!track) return
-  try {
-    // o filtro do WebRTC é uma configuração da captura: precisa reabrir o microfone
-    await track.restartTrack({
-      deviceId: get().settings.inputDeviceId || undefined,
-      noiseSuppression: mode === 'basic',
-      echoCancellation: get().settings.echoCancellation,
-      autoGainControl: get().settings.autoGainControl,
-    })
-  } catch (err) {
-    showToast(`Não foi possível reabrir o microfone: ${errorText(err)}`)
+  // filtro do WebRTC e volume automático são configurações da captura: precisa reabrir o microfone
+  if (before.noiseSuppression !== after.noiseSuppression || before.autoGainControl !== after.autoGainControl) {
+    try {
+      await track.restartTrack({ deviceId: get().settings.inputDeviceId || undefined, ...after })
+    } catch (err) {
+      showToast(`Não foi possível reabrir o microfone: ${errorText(err)}`)
+    }
   }
-  await applyNoiseFilter()
+  await applyMicProcessing()
 }
 
 export async function toggleMute() {
@@ -521,17 +593,19 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
   if (!r) return showToast('Entre num canal de voz primeiro')
   await stopScreenShare()
   const q = QUALITIES[options.quality]
+  shareCeiling = shareBitrate(options.quality, options.hint)
+  const bitrate = fittedBitrate(shareCeiling)
+  startBitrateKbps = Math.round((bitrate * 0.6) / 1000)
 
-  let stream: MediaStream
-  try {
-    await window.api.selectScreenSource(sourceId, options.audio)
-    stream = await navigator.mediaDevices.getDisplayMedia({
+  const capture = async (audio: boolean) => {
+    await window.api.selectScreenSource(sourceId, audio)
+    return navigator.mediaDevices.getDisplayMedia({
       video: {
         width: { max: q.width },
         height: { max: q.height },
         frameRate: { ideal: q.fps, max: q.fps },
       },
-      audio: options.audio
+      audio: audio
         ? ({
             echoCancellation: false,
             noiseSuppression: false,
@@ -541,17 +615,40 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
           } as MediaTrackConstraints)
         : false,
     })
+  }
+
+  // No Windows o áudio vem do helper nativo, que deixa de fora o som do próprio app (as vozes da
+  // call). Sem ele, cai no loopback do Chromium, que pega tudo.
+  const helperAudio = options.audio ? await startScreenAudio() : null
+  const loopback = options.audio && !helperAudio
+
+  let stream: MediaStream
+  try {
+    stream = await capture(loopback)
   } catch (err) {
-    return showToast(`Não foi possível capturar a tela: ${errorText(err)}`)
+    // o áudio do sistema pode não existir (ex.: macOS antigo): tenta só com o vídeo
+    if (!loopback) {
+      helperAudio?.stop()
+      stopScreenAudio()
+      return showToast(`Não foi possível capturar a tela: ${errorText(err)}`)
+    }
+    try {
+      stream = await capture(false)
+      showToast('Compartilhando sem o áudio do sistema')
+    } catch (err2) {
+      return showToast(`Não foi possível capturar a tela: ${errorText(err2)}`)
+    }
   }
 
   if (room !== r) {
     stream.getTracks().forEach((t) => t.stop())
+    helperAudio?.stop()
+    stopScreenAudio()
     return
   }
 
   const [video] = stream.getVideoTracks()
-  const [audio] = stream.getAudioTracks()
+  const audio = helperAudio ?? stream.getAudioTracks()[0]
   video.contentHint = options.hint
   video.addEventListener('ended', () => void stopScreenShare())
 
@@ -563,8 +660,11 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
       videoCodec: 'h264',
       // Para tela o LiveKit lê "screenShareEncoding" (e ignora "videoEncoding"); sem isso valia o
       // teto padrão do WebRTC de 2,5 Mbps e a transmissão ficava travada/borrada.
-      screenShareEncoding: { maxBitrate: q.bitrate, maxFramerate: q.fps },
-      degradationPreference: options.hint === 'motion' ? 'maintain-framerate' : 'maintain-resolution',
+      // priority "high": o vídeo da tela passa na frente na fila de envio do WebRTC
+      screenShareEncoding: { maxBitrate: bitrate, maxFramerate: q.fps, priority: 'high' },
+      // Em jogo, "balanced": sem banda, corta um pouco de resolução e de FPS juntos. Com
+      // "maintain-framerate" a resolução despencava e mesmo assim a imagem travava.
+      degradationPreference: options.hint === 'motion' ? 'balanced' : 'maintain-resolution',
     })
     if (audio) {
       await r.localParticipant.publishTrack(audio, {
@@ -573,21 +673,25 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
         dtx: false,
         red: false,
         forceStereo: true,
-        audioPreset: AudioPresets.musicHighQualityStereo,
+        // 96 kbps: Opus estéreo já soa bem para jogo/música e sai do upload uma vez por amigo
+        audioPreset: { maxBitrate: SCREEN_AUDIO_BPS },
       })
     }
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop())
+    helperAudio?.stop()
     await stopScreenShare()
     return showToast(`Falha ao transmitir: ${errorText(err)}`)
   }
 
+  await fitShareToUpload()
   set({ sharing: true })
   reportVoiceState()
   bump()
 }
 
 export async function stopScreenShare() {
+  shareCeiling = 0
   const lp = room?.localParticipant
   if (lp) {
     for (const source of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) {
@@ -595,6 +699,7 @@ export async function stopScreenShare() {
       if (pub?.track) await lp.unpublishTrack(pub.track, true).catch(() => {})
     }
   }
+  stopScreenAudio()
   if (get().sharing) {
     set({ sharing: false })
     reportVoiceState()

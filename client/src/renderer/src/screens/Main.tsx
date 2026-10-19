@@ -56,6 +56,14 @@ export function Main() {
     [],
   )
 
+  useEffect(
+    () =>
+      window.api.onFileDownloaded(({ ok, path }) =>
+        showToast(ok ? `Salvo em ${path}` : 'Não foi possível baixar o arquivo'),
+      ),
+    [],
+  )
+
   useEffect(() => window.api.setCloseToTray(closeToTray), [closeToTray])
 
   return (

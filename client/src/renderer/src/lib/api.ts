@@ -84,7 +84,13 @@ export class Api {
   }
 
   livekitToken(channelId: string) {
-    return this.get<{ url: string; token: string; iceServers?: RTCIceServer[] | null }>(
+    return this.get<{
+      url: string
+      token: string
+      iceServers?: RTCIceServer[] | null
+      /** upload de onde o LiveKit roda, em Mbps (null = sem limite configurado) */
+      uploadMbps?: number | null
+    }>(
       `/api/livekit-token?channel=${encodeURIComponent(channelId)}`,
     )
   }

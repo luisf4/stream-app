@@ -756,6 +756,29 @@ a {
   width: 100%;
   margin-top: 6px;
 }
+.attachment-image-wrap {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+.attachment-download {
+  position: absolute;
+  top: 12px;
+  right: 6px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  border-radius: 4px;
+  padding: 6px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.attachment-image-wrap:hover .attachment-download,
+.attachment-download:focus-visible {
+  opacity: 1;
+}
+.attachment-download:hover {
+  background: rgb(0 0 0 / 0.8);
+}
 .attachment-file {
   display: flex;
   align-items: center;
@@ -895,8 +918,27 @@ a {
 }
 .lightbox img {
   max-width: 92vw;
-  max-height: 92vh;
+  max-height: 86vh;
   border-radius: 4px;
+}
+.lightbox {
+  flex-direction: column;
+  gap: 12px;
+}
+.lightbox-download {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.lightbox-download:hover {
+  background: rgb(255 255 255 / 0.22);
 }
 
 /* ---------- modais e menus ---------- */
@@ -1129,6 +1171,7 @@ a {
   background: var(--bg-hover);
 }
 .mic-level {
+  position: relative;
   flex: 1;
   height: 8px;
   border-radius: 4px;
@@ -1139,6 +1182,18 @@ a {
   height: 100%;
   background: var(--success);
   transition: width 0.05s linear;
+}
+/* gate fechado: o que aparece na barra não está sendo transmitido */
+.mic-level.closed > div {
+  background: var(--text-muted);
+}
+.mic-threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
 }
 
 .toast {

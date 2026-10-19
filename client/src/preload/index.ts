@@ -21,6 +21,25 @@ const api = {
       ipcRenderer.removeListener('shortcut', listener)
     }
   },
+  /** Windows: começa a capturar o som do PC sem o do app. false = indisponível (usar o loopback). */
+  startScreenAudio: (): Promise<boolean> => ipcRenderer.invoke('screenAudio:start'),
+  stopScreenAudio: () => ipcRenderer.send('screenAudio:stop'),
+  onScreenAudio: (callback: (pcm: Uint8Array) => void) => {
+    const listener = (_event: IpcRendererEvent, pcm: Uint8Array) => callback(pcm)
+    ipcRenderer.on('screenAudio:data', listener)
+    return () => {
+      ipcRenderer.removeListener('screenAudio:data', listener)
+    }
+  },
+  /** Abre "Salvar como" para um anexo do chat. */
+  downloadFile: (url: string, name: string) => ipcRenderer.send('file:download', { url, name }),
+  onFileDownloaded: (callback: (result: { ok: boolean; path: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, result: { ok: boolean; path: string }) => callback(result)
+    ipcRenderer.on('file:downloaded', listener)
+    return () => {
+      ipcRenderer.removeListener('file:downloaded', listener)
+    }
+  },
   flashFrame: () => ipcRenderer.send('window:flash'),
   showWindow: () => ipcRenderer.send('window:show'),
   setCloseToTray: (value: boolean) => ipcRenderer.send('settings:closeToTray', value),

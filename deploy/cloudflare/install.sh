@@ -70,6 +70,9 @@ SERVER_PASSWORD=${SERVER_PASSWORD}
 JWT_SECRET=$(openssl rand -hex 32)
 CHANNELS=${CHANNELS}
 MAX_UPLOAD_MB=95
+# Upload da internet de casa, em Mbps (meça com um speedtest). Com ele o app divide a taxa da
+# transmissão de tela entre quem está na call, em vez de estourar o upload e travar a imagem.
+UPLOAD_MBPS=0
 APP_DOMAIN=${APP_DOMAIN}
 LIVEKIT_DOMAIN=${LIVEKIT_DOMAIN}
 LIVEKIT_API_KEY=API$(openssl rand -hex 6)

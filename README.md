@@ -194,6 +194,11 @@ cd client
 npm run dist
 ```
 
+The macOS build (Apple Silicon / arm64 only) has to run on a Mac: `npm run dist:mac` there, or run the
+**Build macOS** workflow in GitHub Actions (set the `VITE_SERVER_URL` and `VITE_SERVER_PASSWORD` repository secrets
+first) and download the `.dmg` from the run's artifacts. The app is ad-hoc signed, not notarized, so on first launch
+macOS blocks it: right-click the app → **Open**, or run `xattr -cr /Applications/Resenha.app`.
+
 All secrets (`.env` files) are git-ignored; only `*.env.example` templates are committed.
 
 ---
@@ -201,7 +206,7 @@ All secrets (`.env` files) are git-ignored; only `*.env.example` templates are c
 ## Limitations
 
 - **Bandwidth:** the SFU runs at home, so every viewer's copy of a stream leaves through the home upload
-  (~4.5 Mbps per viewer at 1080p30, ~2.5 Mbps at 720p30).
+  (~4.5 Mbps per viewer at 1080p30, ~2.5 Mbps at 720p30; up to ~6 and ~3.5 Mbps in "games and video" mode, split by `UPLOAD_MBPS`).
 - **TURN quota:** Cloudflare's free tier covers 1,000 GB/month of relayed media, which is plenty for voice and
   several hours of screen sharing per day.
 - **System audio capture:** the app asks Chromium to exclude its own audio from the loopback capture. Depending on
