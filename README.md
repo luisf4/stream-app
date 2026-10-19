@@ -37,17 +37,16 @@ que roda junto com o servidor: cada pessoa envia o vídeo uma vez e ele distribu
 - [x] **TURN do Cloudflare testado**: a voz conectou com o LiveKit atrás do roteador, sem nenhuma porta aberta
 - [x] **Reinício automático do LiveKit quando o IP de casa muda** (`deploy/cloudflare/ip-watch.sh`)
 - [x] **Container LXC criado no Proxmox** com Docker (nesting + keyctl)
-- [x] **Cloudflare Tunnel criado e conectado** (temporariamente pelo container `cloudflared-temp`)
+- [x] **Cloudflare Tunnel criado e conectado**
+- [x] **Rotas do túnel**: `resenha.resenhalive.stream` → `http://localhost:3000` e `voz.resenhalive.stream` → `http://localhost:7880`
+- [x] **Código no GitHub** ([luisf4/stream-app](https://github.com/luisf4/stream-app))
+- [x] **Servidor rodando no Proxmox** pelo `deploy/cloudflare/install.sh`
+- [x] **Instalador gerado** com o endereço e a senha embutidos (pede só o apelido)
+- [x] **Login funcionando de dois PCs**, incluindo um amigo de fora (com VPN desligada)
 
 ### Falta
 
-- [ ] Configurar os **Public Hostnames** do túnel: `resenha.` → `localhost:3000` e `voz.` → `localhost:7880`
-- [ ] Enviar o código para o **GitHub** ([luisf4/stream-app](https://github.com/luisf4/stream-app))
-- [ ] No container: `git clone https://github.com/luisf4/stream-app.git /root/resenha`, apagar o
-      `cloudflared-temp` e rodar `deploy/cloudflare/install.sh`
-      ([DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md), passos 5 e 6)
-- [ ] Criar o `client/.env` com o domínio e a senha e gerar o instalador para os amigos
-- [ ] Testar com os amigos pelo domínio: voz, tela 1080p e o consumo no painel do TURN
+- [ ] Testar voz e tela 1080p com os amigos e olhar o consumo no painel do TURN
 - [ ] Conferir se o áudio da tela não leva a voz dos amigos junto (eco); se levar, criar o módulo nativo
       que exclui o próprio app da captura
 - [ ] Gerar **tokens novos** do túnel e do TURN no painel do Cloudflare (os atuais passaram pelo chat) e

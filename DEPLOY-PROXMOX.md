@@ -270,6 +270,8 @@ O uso do TURN aparece no painel do Cloudflare em **Realtime → TURN Server**.
 | Ao entrar na voz: "Falha ao preparar a conexão de voz (TURN)" | Turn Token ID ou API Token errados | Veja `docker compose logs app`; corrija `CLOUDFLARE_TURN_*` no `.env` e `docker compose up -d` |
 | Voz fica em "Conectando…" e cai | O LiveKit não descobriu o IP público da casa, ou o roteador bloqueia UDP de saída | Em `docker compose logs livekit`, a linha `using external IPs` deve mostrar o seu IP público (ex: `179.x.x.x/192.168.x.x`); se não mostrar, `docker compose restart livekit` |
 | A voz parou depois que a internet caiu e voltou | O IP de casa mudou | O `ip-watch.sh` reinicia o LiveKit sozinho em até 2 minutos (histórico em `ip-watch.log`) |
+| App diz "Não foi possível conectar ao servidor", mas o endereço funciona para outras pessoas | A rede guardou a resposta antiga de "não existe" (de antes da rota existir) | `ipconfig /flushdns`; se o `nslookup resenha.seudominio.com` ainda disser *Non-existent domain*, reinicie o roteador (ou o AdGuard/Pi-hole) ou espere até 30 min |
+| Mesmo erro num PC com **VPN** (ex: Proton, DNS `10.2.0.1`) e o `nslookup` só mostra endereços IPv6 (`2606:...`) | O DNS da VPN guardou a resposta antiga e a VPN bloqueia IPv6 | Desligue a VPN, ou exclua o Resenha no *Split Tunneling* da VPN (melhor também para a voz) |
 | Upload falha com arquivo grande | Limite de 100 MB do Cloudflare (plano grátis) | Mantenha `MAX_UPLOAD_MB=95` |
 | `install.sh: $'\r': command not found` | Arquivo com quebras de linha do Windows | `sed -i 's/\r$//' install.sh` |
 
