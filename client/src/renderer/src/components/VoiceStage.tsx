@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 import { getRoom, joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleMute } from '../lib/voice'
 import { useStore } from '../store'
 import { Avatar } from './Avatar'
-import { ExpandIcon, MicIcon, MonitorIcon, PhoneOffIcon, VideoIcon } from './Icons'
+import { ExpandIcon, MicIcon, MonitorIcon, PhoneOffIcon, StatsIcon, VideoIcon } from './Icons'
+import { StreamStats } from './StreamStats'
 
 interface TileData {
   key: string
@@ -161,6 +162,7 @@ function Tile({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const [showStats, setShowStats] = useState(false)
   const { participant, track, kind } = tile
   const name = participant.name || participant.identity
 
@@ -204,16 +206,31 @@ function Tile({
         </span>
         {kind === 'camera' && !participant.isMicrophoneEnabled && <MicIcon size={14} slashed />}
       </div>
-      <button
-        className="tile-fullscreen icon-btn"
-        title="Tela cheia"
-        onClick={(e) => {
-          e.stopPropagation()
-          fullscreen()
-        }}
-      >
-        <ExpandIcon size={16} />
-      </button>
+      <div className="tile-buttons">
+        {track && (
+          <button
+            className={`icon-btn${showStats ? ' active' : ''}`}
+            title="Estatísticas (fps, taxa, conexão)"
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowStats((v) => !v)
+            }}
+          >
+            <StatsIcon size={16} />
+          </button>
+        )}
+        <button
+          className="icon-btn"
+          title="Tela cheia"
+          onClick={(e) => {
+            e.stopPropagation()
+            fullscreen()
+          }}
+        >
+          <ExpandIcon size={16} />
+        </button>
+      </div>
+      {track && showStats && <StreamStats track={track} />}
     </div>
   )
 }

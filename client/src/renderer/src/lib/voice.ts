@@ -24,6 +24,30 @@ if (import.meta.env.DEV) setLogLevel('debug')
 // LiveKit, o app cria a permissão primeiro e a conexão fecha em 1–3 s.
 const CANDIDATE_DELAY_MS = 1500
 let delayCandidates = false
+
+// O controle de banda do WebRTC começa em ~300 kbps e sobe devagar: sem isto, toda transmissão de
+// tela passava quase um minuto borrada (320x180) antes de chegar na qualidade escolhida. O Chrome
+// aceita a taxa inicial no SDP (x-google-start-bitrate, em kbps) dos codecs de vídeo.
+const START_BITRATE_KBPS = 3000
+
+function withStartBitrate(sdp: string): string {
+  const lines = sdp.split('\r\n')
+  const videoPayloads = new Set<string>()
+  let inVideo = false
+  for (const line of lines) {
+    if (line.startsWith('m=')) inVideo = line.startsWith('m=video')
+    const codec = inVideo && line.match(/^a=rtpmap:(\d+) (H264|VP8|VP9|AV1)\//i)
+    if (codec) videoPayloads.add(codec[1])
+  }
+  return lines
+    .map((line) => {
+      const fmtp = line.match(/^a=fmtp:(\d+) /)
+      if (!fmtp || !videoPayloads.has(fmtp[1]) || line.includes('x-google-start-bitrate')) return line
+      return `${line};x-google-start-bitrate=${START_BITRATE_KBPS}`
+    })
+    .join('\r\n')
+}
+
 {
   const NativePC = window.RTCPeerConnection
   window.RTCPeerConnection = class extends NativePC {
@@ -35,6 +59,12 @@ let delayCandidates = false
     }
     get onicecandidate() {
       return super.onicecandidate
+    }
+    setRemoteDescription(description: RTCSessionDescriptionInit) {
+      if (description?.sdp) {
+        description = { type: description.type, sdp: withStartBitrate(description.sdp) }
+      }
+      return super.setRemoteDescription(description)
     }
   }
 }
@@ -446,7 +476,9 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
       name: 'screen',
       simulcast: false,
       videoCodec: 'h264',
-      videoEncoding: { maxBitrate: q.bitrate, maxFramerate: q.fps },
+      // Para tela o LiveKit lê "screenShareEncoding" (e ignora "videoEncoding"); sem isso valia o
+      // teto padrão do WebRTC de 2,5 Mbps e a transmissão ficava travada/borrada.
+      screenShareEncoding: { maxBitrate: q.bitrate, maxFramerate: q.fps },
       degradationPreference: options.hint === 'motion' ? 'maintain-framerate' : 'maintain-resolution',
     })
     if (audio) {

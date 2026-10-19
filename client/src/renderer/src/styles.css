@@ -581,17 +581,48 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tile-fullscreen {
+.tile-buttons {
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgb(0 0 0 / 0.6);
-  color: white;
+  display: flex;
+  gap: 4px;
   opacity: 0;
   transition: opacity 0.15s;
 }
-.tile:hover .tile-fullscreen {
+.tile-buttons .icon-btn {
+  background: rgb(0 0 0 / 0.6);
+  color: white;
+}
+.tile-buttons .icon-btn.active {
+  background: var(--accent);
+}
+.tile:hover .tile-buttons,
+.tile-buttons:has(.active) {
   opacity: 1;
+}
+.stream-stats {
+  position: absolute;
+  top: 48px;
+  right: 8px;
+  min-width: 250px;
+  background: rgb(0 0 0 / 0.78);
+  color: #e6e6e6;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+  cursor: default;
+  user-select: text;
+}
+.stream-stats > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.6;
+}
+.stream-stats span {
+  color: #9aa0a6;
 }
 
 .stage-controls {
