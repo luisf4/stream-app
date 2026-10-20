@@ -88,8 +88,6 @@ export class Api {
       url: string
       token: string
       iceServers?: RTCIceServer[] | null
-      /** upload de onde o LiveKit roda, em Mbps (null = sem limite configurado) */
-      uploadMbps?: number | null
     }>(
       `/api/livekit-token?channel=${encodeURIComponent(channelId)}`,
     )

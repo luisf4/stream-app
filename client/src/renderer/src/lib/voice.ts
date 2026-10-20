@@ -75,14 +75,13 @@ import { sounds } from './sounds'
 export type ShareQuality = '1080p30' | '720p30'
 
 // A taxa vale por pessoa assistindo e sai do upload de quem hospeda o servidor. Jogo com muito
-// movimento precisa de mais bits que texto parado. É o teto: com UPLOAD_MBPS configurado no servidor,
-// a taxa real é dividida entre quem está na call (ver fitShareToUpload).
+// movimento precisa de mais bits que texto parado.
 export const QUALITIES: Record<
   ShareQuality,
   { label: string; width: number; height: number; fps: number; bitrate: number; motionBitrate: number }
 > = {
-  '1080p30': { label: '1080p 30fps', width: 1920, height: 1080, fps: 30, bitrate: 4_500_000, motionBitrate: 6_000_000 },
-  '720p30': { label: '720p 30fps', width: 1280, height: 720, fps: 30, bitrate: 2_500_000, motionBitrate: 3_500_000 },
+  '1080p30': { label: '1080p 30fps', width: 1920, height: 1080, fps: 30, bitrate: 10_000_000, motionBitrate: 20_000_000 },
+  '720p30': { label: '720p 30fps', width: 1280, height: 720, fps: 30, bitrate: 5_000_000, motionBitrate: 10_000_000 },
 }
 
 export function shareBitrate(quality: ShareQuality, hint: ShareOptions['hint']) {
@@ -90,44 +89,7 @@ export function shareBitrate(quality: ShareQuality, hint: ShareOptions['hint']) 
   return hint === 'motion' ? q.motionBitrate : q.bitrate
 }
 
-/** Upload de onde o LiveKit roda, em bps (0 = sem limite). Vem do servidor junto com o token. */
-let uploadBps = 0
-// Só ~70% do upload vai para a tela: o resto fica para as vozes, o áudio da transmissão, o chat e a
-// sobra do TURN. Passando disso a fila do roteador enche, os pacotes se perdem e a imagem trava.
-const UPLOAD_SHARE = 0.7
 const SCREEN_AUDIO_BPS = 96_000
-const MIN_SHARE_BPS = 800_000
-/** Abaixo disso, 1080p vira borrão quadriculado: sai mais nítido mandar 720p. */
-const DOWNSCALE_BELOW_BPS = 3_000_000
-
-/** taxa pedida na transmissão atual (o teto da qualidade escolhida) */
-let shareCeiling = 0
-
-/** Taxa da tela por amigo: o teto da qualidade, ou a fatia do upload do servidor se for menor. */
-function fittedBitrate(ceiling: number) {
-  if (!uploadBps || !room) return ceiling
-  const viewers = Math.max(room.remoteParticipants.size, 1)
-  const slice = (uploadBps * UPLOAD_SHARE) / viewers - SCREEN_AUDIO_BPS
-  return Math.round(Math.min(ceiling, Math.max(slice, MIN_SHARE_BPS)))
-}
-
-/** Reajusta a taxa (e, se precisar, a resolução) da tela quando alguém entra ou sai da call. */
-async function fitShareToUpload() {
-  const track = room?.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track
-  const sender = track?.sender
-  if (!sender || !shareCeiling) return
-  const bitrate = fittedBitrate(shareCeiling)
-  const height = track.mediaStreamTrack.getSettings().height ?? 0
-  const scale = height > 720 && bitrate < DOWNSCALE_BELOW_BPS ? height / 720 : 1
-
-  const params = sender.getParameters()
-  const encoding = params.encodings?.[0]
-  if (!encoding) return
-  if (encoding.maxBitrate === bitrate && (encoding.scaleResolutionDownBy ?? 1) === scale) return
-  encoding.maxBitrate = bitrate
-  encoding.scaleResolutionDownBy = scale
-  await sender.setParameters(params).catch(() => {})
-}
 
 export interface ShareOptions {
   quality: ShareQuality
@@ -281,18 +243,15 @@ function wire(r: Room) {
     )
     .on(RoomEvent.ParticipantConnected, () => {
       play('join')
-      void fitShareToUpload()
       bump()
     })
     .on(RoomEvent.ParticipantDisconnected, () => {
       play('leave')
-      void fitShareToUpload()
       bump()
     })
     .on(RoomEvent.Reconnecting, () => set({ voiceStatus: 'reconnecting' }))
     .on(RoomEvent.Reconnected, () => {
       set({ voiceStatus: 'connected' })
-      void fitShareToUpload()
       reportVoiceState()
     })
     .on(RoomEvent.LocalTrackUnpublished, (pub) => {
@@ -378,8 +337,7 @@ export async function joinVoice(channelId: string) {
   let r: Room | null = null
   let lastError: unknown
   try {
-    const { url, token, iceServers, uploadMbps } = await api.livekitToken(channelId)
-    uploadBps = (uploadMbps ?? 0) * 1_000_000
+    const { url, token, iceServers } = await api.livekitToken(channelId)
     // Com TURN configurado no servidor (Cloudflare Tunnel, sem portas abertas), a mídia só chega
     // ao LiveKit pelo retransmissor (ver CANDIDATE_DELAY_MS). Se a 1ª tentativa ainda assim não
     // fechar em 8 s, tentamos de novo em vez de esperar os 15 s padrão.
@@ -593,8 +551,7 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
   if (!r) return showToast('Entre num canal de voz primeiro')
   await stopScreenShare()
   const q = QUALITIES[options.quality]
-  shareCeiling = shareBitrate(options.quality, options.hint)
-  const bitrate = fittedBitrate(shareCeiling)
+  const bitrate = shareBitrate(options.quality, options.hint)
   startBitrateKbps = Math.round((bitrate * 0.6) / 1000)
 
   const capture = async (audio: boolean) => {
@@ -684,14 +641,12 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
     return showToast(`Falha ao transmitir: ${errorText(err)}`)
   }
 
-  await fitShareToUpload()
   set({ sharing: true })
   reportVoiceState()
   bump()
 }
 
 export async function stopScreenShare() {
-  shareCeiling = 0
   const lp = room?.localParticipant
   if (lp) {
     for (const source of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) {

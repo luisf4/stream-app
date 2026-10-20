@@ -206,7 +206,7 @@ All secrets (`.env` files) are git-ignored; only `*.env.example` templates are c
 ## Limitations
 
 - **Bandwidth:** the SFU runs at home, so every viewer's copy of a stream leaves through the home upload
-  (~4.5 Mbps per viewer at 1080p30, ~2.5 Mbps at 720p30; up to ~6 and ~3.5 Mbps in "games and video" mode, split by `UPLOAD_MBPS`).
+  (~10 Mbps per viewer at 1080p30, ~5 Mbps at 720p30; up to ~20 and ~10 Mbps in "games and video" mode).
 - **TURN quota:** Cloudflare's free tier covers 1,000 GB/month of relayed media, which is plenty for voice and
   several hours of screen sharing per day.
 - **System audio capture:** the app asks Chromium to exclude its own audio from the loopback capture. Depending on

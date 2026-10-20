@@ -72,7 +72,6 @@ export function registerRoutes(app: FastifyInstance) {
       url: config.livekit.publicUrl,
       token: await at.toJwt(),
       iceServers,
-      uploadMbps: config.uploadMbps || null,
     }
   })
 

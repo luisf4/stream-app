@@ -41,9 +41,6 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
   maxUploadMb: Number(env.MAX_UPLOAD_MB ?? 100),
-  // Upload da internet de onde o LiveKit roda, em Mbps (0 = sem limite). Cada amigo assistindo recebe
-  // uma cópia da transmissão saindo desse upload: o app divide a taxa da tela entre quem está na call.
-  uploadMbps: Number(env.UPLOAD_MBPS ?? 0) || 0,
   dataDir: resolve(env.DATA_DIR ?? './data'),
 }
 
