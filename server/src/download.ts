@@ -74,14 +74,7 @@ function page(release: Release | null): string {
   .btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
   .btn:focus-visible { outline: 2px solid var(--strong); outline-offset: 3px; }
   .meta { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
-  ul {
-    list-style: none; margin: 32px 0 0; padding: 16px 20px; text-align: left;
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-  }
-  li { padding: 6px 0; }
-  li + li { border-top: 1px solid var(--line); }
-  li strong { color: var(--strong); font-weight: 600; }
-  .hint { margin: 20px 0 0; color: var(--muted); font-size: 13px; }
+  .hint { margin: 32px 0 0; color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -90,11 +83,6 @@ function page(release: Release | null): string {
     <h1>${name}</h1>
     <p class="tagline">Voz, vídeo, tela e chat para a galera do churras.</p>
     ${download}
-    <ul>
-      <li><strong>Voz com redução de ruído</strong>: some ventilador e teclado.</li>
-      <li><strong>Tela em 1080p com áudio do PC</strong>, webcam e chat com arquivos.</li>
-      <li><strong>Instala uma vez</strong>: as atualizações chegam sozinhas.</li>
-    </ul>
     <p class="hint">Se aparecer "O Windows protegeu o computador", clique em
       <strong>Mais informações</strong> e depois em <strong>Executar assim mesmo</strong>.</p>
   </main>
