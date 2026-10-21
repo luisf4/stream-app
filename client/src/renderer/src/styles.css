@@ -297,11 +297,19 @@ a {
   padding: 8px;
 }
 .section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-muted);
   padding: 16px 8px 6px;
+}
+.section-title .icon-btn {
+  width: 24px;
+  height: 24px;
+  margin: -4px -4px -4px 0;
 }
 .section-title:first-child {
   padding-top: 4px;
@@ -671,6 +679,11 @@ a {
   background: var(--bg-2);
   border-left: 1px solid var(--bg-0);
   position: relative;
+}
+.chat.wide {
+  flex: 1;
+  width: auto;
+  border-left: none;
 }
 .messages {
   flex: 1;

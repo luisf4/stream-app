@@ -45,8 +45,8 @@ export function registerRoutes(app: FastifyInstance) {
   app.get('/api/livekit-token', async (req, reply) => {
     const user = authenticate(req)
     const { channel } = req.query as { channel?: string }
-    if (!channel || !getChannel(channel)) {
-      return reply.code(404).send({ error: 'Canal não encontrado' })
+    if (!channel || getChannel(channel)?.kind !== 'voice') {
+      return reply.code(404).send({ error: 'Canal de voz não encontrado' })
     }
     const at = new AccessToken(config.livekit.apiKey, config.livekit.apiSecret, {
       identity: user.id,

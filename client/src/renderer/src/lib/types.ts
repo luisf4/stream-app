@@ -14,6 +14,8 @@ export interface Channel {
   id: string
   name: string
   position: number
+  /** texto: só chat, sem voz */
+  kind: 'voice' | 'text'
 }
 
 export interface Attachment {

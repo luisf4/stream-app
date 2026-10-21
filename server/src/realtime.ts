@@ -104,7 +104,7 @@ export function setupRealtime(io: Server) {
     })
 
     on('voice:update', (p) => {
-      if (typeof p.channelId === 'string' && getChannel(p.channelId)) {
+      if (typeof p.channelId === 'string' && getChannel(p.channelId)?.kind === 'voice') {
         voice.set(socket.id, {
           userId: user.id,
           nickname: user.nickname,
@@ -124,7 +124,7 @@ export function setupRealtime(io: Server) {
       const name = cleanName(p.name)
       if (!name) return reply({ ok: false, error: 'Nome inválido' })
       if (listChannels().length >= 50) return reply({ ok: false, error: 'Canais demais' })
-      const channel = createChannel(name)
+      const channel = createChannel(name, p.kind === 'text' ? 'text' : 'voice')
       io.emit('channels', listChannels())
       reply({ ok: true, channel })
     })

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChatPanel } from '../components/ChatPanel'
-import { ChatIcon, CloseIcon, SpeakerIcon } from '../components/Icons'
+import { ChatIcon, CloseIcon, HashIcon, SpeakerIcon } from '../components/Icons'
 import { ScreenPicker } from '../components/ScreenPicker'
 import { SettingsModal } from '../components/SettingsModal'
 import { Sidebar } from '../components/Sidebar'
@@ -77,7 +77,17 @@ export function Main() {
       <Sidebar onOpenSettings={() => setSettingsOpen(true)} onShareScreen={() => setPicker(true)} />
 
       <main className="content">
-        {channel && selectedChannelId ? (
+        {channel && selectedChannelId && channel.kind === 'text' ? (
+          <>
+            <header className="content-header">
+              <HashIcon size={20} />
+              <h2>{channel.name}</h2>
+            </header>
+            <div className="content-body">
+              <ChatPanel key={selectedChannelId} channelId={selectedChannelId} wide />
+            </div>
+          </>
+        ) : channel && selectedChannelId ? (
           <>
             <header className="content-header">
               <SpeakerIcon size={20} />

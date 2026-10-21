@@ -14,6 +14,7 @@ import { selectChannel, showToast, useStore } from '../store'
 import { Avatar } from './Avatar'
 import { ContextMenu } from './ContextMenu'
 import {
+  HashIcon,
   HeadphonesIcon,
   MicIcon,
   MonitorIcon,
@@ -30,7 +31,7 @@ type Menu =
   | { kind: 'user'; x: number; y: number; nickname: string }
 
 type Dialog =
-  | { type: 'create' }
+  | { type: 'create'; kind: Channel['kind'] }
   | { type: 'rename'; channel: Channel }
   | { type: 'delete'; channel: Channel }
 
@@ -63,14 +64,51 @@ export function Sidebar({
     <aside className="sidebar">
       <header className="sidebar-header">
         <span className="server-name">{session.server.name}</span>
-        <button className="icon-btn" title="Criar canal" onClick={() => setDialog({ type: 'create' })}>
-          <PlusIcon size={18} />
-        </button>
       </header>
 
       <nav className="channel-list">
-        <div className="section-title">Canais de voz</div>
-        {channels.map((channel) => {
+        <div className="section-title">
+          <span>Canais de texto</span>
+          <button
+            className="icon-btn"
+            title="Criar canal de texto"
+            onClick={() => setDialog({ type: 'create', kind: 'text' })}
+          >
+            <PlusIcon size={16} />
+          </button>
+        </div>
+        {channels
+          .filter((c) => c.kind === 'text')
+          .map((channel) => {
+            const count = unread[channel.id] ?? 0
+            return (
+              <button
+                key={channel.id}
+                className={`channel${selectedChannelId === channel.id ? ' selected' : ''}${count ? ' unread' : ''}`}
+                onClick={() => selectChannel(channel.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setMenu({ kind: 'channel', x: e.clientX, y: e.clientY, channel })
+                }}
+              >
+                <HashIcon size={18} />
+                <span className="channel-name">{channel.name}</span>
+                {count > 0 && <span className="badge">{count > 99 ? '99+' : count}</span>}
+              </button>
+            )
+          })}
+
+        <div className="section-title">
+          <span>Canais de voz</span>
+          <button
+            className="icon-btn"
+            title="Criar canal de voz"
+            onClick={() => setDialog({ type: 'create', kind: 'voice' })}
+          >
+            <PlusIcon size={16} />
+          </button>
+        </div>
+        {channels.filter((c) => c.kind !== 'text').map((channel) => {
           const members = voiceStates.filter((v) => v.channelId === channel.id)
           const count = unread[channel.id] ?? 0
           const joining = voiceChannelId === channel.id && voiceStatus === 'connecting'
@@ -136,14 +174,16 @@ export function Sidebar({
 
       {menu?.kind === 'channel' && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
-          <button
-            onClick={() => {
-              joinVoice(menu.channel.id)
-              setMenu(null)
-            }}
-          >
-            Entrar na voz
-          </button>
+          {menu.channel.kind !== 'text' && (
+            <button
+              onClick={() => {
+                joinVoice(menu.channel.id)
+                setMenu(null)
+              }}
+            >
+              Entrar na voz
+            </button>
+          )}
           <button
             onClick={() => {
               setDialog({ type: 'rename', channel: menu.channel })
@@ -171,11 +211,11 @@ export function Sidebar({
 
       {dialog?.type === 'create' && (
         <PromptModal
-          title="Criar canal de voz"
+          title={dialog.kind === 'text' ? 'Criar canal de texto' : 'Criar canal de voz'}
           label="Nome do canal"
           confirmText="Criar"
           onClose={() => setDialog(null)}
-          onSubmit={(name) => run('channel:create', { name })}
+          onSubmit={(name) => run('channel:create', { name, kind: dialog.kind })}
         />
       )}
       {dialog?.type === 'rename' && (
@@ -190,7 +230,7 @@ export function Sidebar({
       {dialog?.type === 'delete' && (
         <ConfirmModal
           title="Apagar canal"
-          text={`Apagar "${dialog.channel.name}"? O histórico de mensagens dele também será apagado.`}
+          text={`Apagar "${dialog.channel.name}"? As mensagens dele também serão apagadas.`}
           confirmText="Apagar"
           onClose={() => setDialog(null)}
           onConfirm={() => run('channel:delete', { id: dialog.channel.id })}

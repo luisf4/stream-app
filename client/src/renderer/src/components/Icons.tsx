@@ -84,6 +84,15 @@ export const SpeakerIcon = icon(
   </>,
 )
 
+export const HashIcon = icon(
+  <>
+    <path d="M4 9h16" />
+    <path d="M4 15h16" />
+    <path d="M10 3 8 21" />
+    <path d="M16 3l-2 18" />
+  </>,
+)
+
 export const PlusIcon = icon(
   <>
     <path d="M5 12h14" />

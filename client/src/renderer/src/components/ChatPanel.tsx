@@ -11,7 +11,8 @@ import { ConfirmModal } from './Modal'
 const GROUP_WINDOW = 5 * 60_000
 const URL_RE = /(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g
 
-export function ChatPanel({ channelId }: { channelId: string }) {
+/** wide: canal de texto, o chat ocupa a área toda (no canal de voz fica na lateral) */
+export function ChatPanel({ channelId, wide = false }: { channelId: string; wide?: boolean }) {
   const api = useStore((s) => s.api)!
   const me = useStore((s) => s.session!.user)
   const maxUploadMb = useStore((s) => s.session!.server.maxUploadMb)
@@ -152,7 +153,7 @@ export function ChatPanel({ channelId }: { channelId: string }) {
 
   return (
     <section
-      className={`chat${dragging ? ' dragging' : ''}`}
+      className={`chat${wide ? ' wide' : ''}${dragging ? ' dragging' : ''}`}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault()

@@ -3,10 +3,13 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { config } from './config.js'
 
+export type ChannelKind = 'voice' | 'text'
+
 export interface Channel {
   id: string
   name: string
   position: number
+  kind: ChannelKind
 }
 
 export interface Attachment {
@@ -58,33 +61,36 @@ db.exec(`
   );
 `)
 
+// bancos criados antes dos canais de texto: todo canal antigo é de voz
+const channelColumns = db.prepare('PRAGMA table_info(channels)').all() as { name: string }[]
+if (!channelColumns.some((c) => c.name === 'kind')) {
+  db.exec("ALTER TABLE channels ADD COLUMN kind TEXT NOT NULL DEFAULT 'voice'")
+}
+
 // ---------- canais ----------
 
 const newId = () => randomBytes(4).toString('hex')
 
 export function listChannels(): Channel[] {
   return db
-    .prepare('SELECT id, name, position FROM channels ORDER BY position, created_at')
+    .prepare('SELECT id, name, position, kind FROM channels ORDER BY position, created_at')
     .all() as unknown as Channel[]
 }
 
 export function getChannel(id: string): Channel | undefined {
-  return db.prepare('SELECT id, name, position FROM channels WHERE id = ?').get(id) as
+  return db.prepare('SELECT id, name, position, kind FROM channels WHERE id = ?').get(id) as
     | Channel
     | undefined
 }
 
-export function createChannel(name: string): Channel {
+export function createChannel(name: string, kind: ChannelKind): Channel {
   const row = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS next FROM channels').get() as {
     next: number
   }
-  const channel = { id: newId(), name, position: row.next }
-  db.prepare('INSERT INTO channels (id, name, position, created_at) VALUES (?, ?, ?, ?)').run(
-    channel.id,
-    channel.name,
-    channel.position,
-    Date.now(),
-  )
+  const channel = { id: newId(), name, position: row.next, kind }
+  db.prepare(
+    'INSERT INTO channels (id, name, position, kind, created_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(channel.id, channel.name, channel.position, channel.kind, Date.now())
   return channel
 }
 
@@ -99,7 +105,8 @@ export function deleteChannel(id: string): void {
 
 const { count } = db.prepare('SELECT COUNT(*) AS count FROM channels').get() as { count: number }
 if (count === 0) {
-  for (const name of config.defaultChannels) createChannel(name)
+  createChannel('geral', 'text')
+  for (const name of config.defaultChannels) createChannel(name, 'voice')
 }
 
 // ---------- anexos ----------
