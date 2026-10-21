@@ -8,7 +8,6 @@ import { AccessToken } from 'livekit-server-sdk'
 import { authenticate, checkPassword, issueToken, tooManyAttempts } from './auth.js'
 import { config, uploadDir } from './config.js'
 import { getChannel, getMessages, insertAttachment } from './db.js'
-import { getIceServers } from './turn.js'
 
 export function registerRoutes(app: FastifyInstance) {
   app.get('/api/health', async () => ({ ok: true }))
@@ -61,17 +60,9 @@ export function registerRoutes(app: FastifyInstance) {
       canSubscribe: true,
       canPublishData: true,
     })
-    let iceServers = null
-    try {
-      iceServers = await getIceServers()
-    } catch (err) {
-      req.log.error(err, 'falha ao gerar credenciais TURN')
-      return reply.code(502).send({ error: 'Falha ao preparar a conexão de voz (TURN)' })
-    }
     return {
       url: config.livekit.publicUrl,
       token: await at.toJwt(),
-      iceServers,
     }
   })
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instala o servidor do Resenha numa VPS ou servidor de casa (Ubuntu/Debian, LXC do Proxmox).
+# Instala o servidor do Resenha numa VPS (Ubuntu/Debian) com as portas abertas.
 # Uso (dentro da pasta deploy/):  sudo bash install.sh
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -11,8 +11,8 @@ fi
 
 echo "==> Resenha - instalação do servidor"
 
-if ! command -v curl >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1; then
-  apt-get update && apt-get install -y curl openssl cron
+if ! command -v curl >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
+  apt-get update && apt-get install -y curl openssl
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -20,27 +20,21 @@ if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi
 
+PUBLIC_IP="$(curl -4 -fsS --max-time 10 https://api.ipify.org || true)"
+
 if [ ! -f .env ]; then
-  PUBLIC_IP="$(curl -fsS https://api.ipify.org || true)"
   DEFAULT_DOMAIN=""
   if [ -n "$PUBLIC_IP" ]; then
     DEFAULT_DOMAIN="${PUBLIC_IP//./-}.sslip.io"
   fi
 
   echo
-  echo "Servidor em casa (IP muda)? Use o DuckDNS grátis: crie um subdomínio em https://www.duckdns.org"
-  read -rp "Subdomínio DuckDNS (só a parte antes de .duckdns.org; Enter para não usar): " DUCKDNS_SUBDOMAIN
-  DUCKDNS_TOKEN=""
-  if [ -n "$DUCKDNS_SUBDOMAIN" ]; then
-    DUCKDNS_SUBDOMAIN="${DUCKDNS_SUBDOMAIN%.duckdns.org}"
-    while [ -z "$DUCKDNS_TOKEN" ]; do
-      read -rp "Token do DuckDNS (aparece no topo do site): " DUCKDNS_TOKEN
-    done
-    DEFAULT_DOMAIN="${DUCKDNS_SUBDOMAIN}.duckdns.org"
-  fi
-
+  echo "Já tem um app distribuído para os amigos? Use o MESMO endereço dele (VITE_SERVER_URL),"
+  echo "assim ninguém precisa reinstalar. Sem domínio próprio, aceite o endereço sslip.io."
   read -rp "Domínio [${DEFAULT_DOMAIN}]: " DOMAIN
   DOMAIN="${DOMAIN:-$DEFAULT_DOMAIN}"
+  DOMAIN="${DOMAIN#https://}"
+  DOMAIN="${DOMAIN%/}"
   if [ -z "$DOMAIN" ]; then
     echo "Não consegui descobrir o IP público; informe um domínio."
     exit 1
@@ -49,6 +43,7 @@ if [ ! -f .env ]; then
   read -rp "Nome do servidor [Resenha]: " SERVER_NAME
   SERVER_NAME="${SERVER_NAME:-Resenha}"
 
+  echo "Se o app já foi distribuído, use a mesma senha embutida nele (VITE_SERVER_PASSWORD)."
   while true; do
     read -rsp "Senha para os amigos entrarem: " SERVER_PASSWORD
     echo
@@ -67,11 +62,22 @@ LIVEKIT_API_KEY=API$(openssl rand -hex 6)
 LIVEKIT_API_SECRET=$(openssl rand -hex 32)
 CHANNELS=${CHANNELS}
 MAX_UPLOAD_MB=100
-DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN}
-DUCKDNS_TOKEN=${DUCKDNS_TOKEN}
 EOF
   chmod 600 .env
   echo "==> .env criado"
+fi
+
+DOMAIN="$(grep '^DOMAIN=' .env | cut -d= -f2)"
+
+# O certificado HTTPS só sai se o domínio já apontar para esta máquina.
+RESOLVED="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+if [ -n "$PUBLIC_IP" ] && [ "$RESOLVED" != "$PUBLIC_IP" ]; then
+  echo
+  echo "AVISO: ${DOMAIN} aponta para '${RESOLVED:-nada}', mas o IP desta máquina é ${PUBLIC_IP}."
+  echo "  No painel de DNS, crie um registro A: ${DOMAIN} -> ${PUBLIC_IP}"
+  echo "  No Cloudflare: proxy DESLIGADO (nuvem cinza, 'DNS only') e sem o CNAME/hostname do túnel."
+  read -rp "Continuar mesmo assim? [s/N]: " CONTINUE
+  [[ "$CONTINUE" =~ ^[sS]$ ]] || exit 1
 fi
 
 # Firewall do sistema (se o ufw estiver ativo)
@@ -80,26 +86,16 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow 80/tcp
   ufw allow 443/tcp
   ufw allow 7881/tcp
-  ufw allow 50000:50100/udp
+  ufw allow 7882/udp
 fi
 
 mkdir -p data
 
-# DuckDNS: atualiza o IP agora (antes do HTTPS) e a cada 5 minutos via cron
-if grep -qE '^DUCKDNS_TOKEN=.+' .env; then
-  echo "==> Configurando DuckDNS..."
-  chmod +x duckdns.sh
-  bash duckdns.sh
-  CRON_LINE="*/5 * * * * cd '$(pwd)' && bash duckdns.sh >> duckdns.log 2>&1"
-  { crontab -l 2>/dev/null | grep -v 'duckdns.sh' || true; echo "$CRON_LINE"; } | crontab -
-fi
-
 echo "==> Subindo os containers..."
 docker compose up -d --build
 
-DOMAIN="$(grep '^DOMAIN=' .env | cut -d= -f2)"
 echo
 echo "Pronto! No app, use o endereço:  https://${DOMAIN}"
 echo
-echo "Lembre de liberar (no roteador de casa ou no painel da nuvem):"
-echo "  TCP 80, 443, 7881  e  UDP 50000-50100"
+echo "Lembre de liberar no firewall do painel da cloud (entrada, de 0.0.0.0/0):"
+echo "  TCP 80, 443, 7881  e  UDP 7882"

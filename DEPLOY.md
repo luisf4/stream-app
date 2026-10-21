@@ -1,19 +1,19 @@
-# Deploying on a VPS (or any server with open ports)
+# Deploying on a VPS
 
-This guide puts the Resenha backend on a cloud VPS (or any Linux server where you can open ports) so your friends
-can connect from anywhere. You end up with three Docker containers:
+This guide puts the Resenha backend on a cloud VPS so your friends can connect from anywhere. You end up with three Docker containers:
 
 | Container | Role | Ports |
 |---|---|---|
 | `caddy` | Automatic HTTPS (Let's Encrypt) and reverse proxy | TCP 80, 443 |
 | `app` | Login, channels, chat and uploads (Node + SQLite) | internal (3000) |
-| `livekit` | Voice, video and screen sharing (WebRTC SFU) | TCP 7881, UDP 50000-50100 |
-
-> Running it at home without opening ports on your router? See [DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md).
+| `livekit` | Voice, video and screen sharing (WebRTC SFU) | TCP 7881, UDP 7882 |
 
 **No domain needed:** by default the installer uses `YOUR-IP.sslip.io` (e.g. `203-0-113-5.sslip.io`), a free
-wildcard DNS name that resolves to your IP and gets a real HTTPS certificate. A home server with a dynamic IP can
-use a free **DuckDNS** hostname instead.
+wildcard DNS name that resolves to your IP and gets a real HTTPS certificate. With your own domain, point an
+**A record** at the VPS (see [Using your own domain](#using-your-own-domain)).
+
+> Moving from the old Proxmox + Cloudflare Tunnel setup? See
+> [Moving from the Proxmox/Cloudflare setup](#moving-from-the-proxmoxcloudflare-setup-same-domain).
 
 ---
 
@@ -45,10 +45,9 @@ anywhere (`0.0.0.0/0`):
 | TCP | 80 | HTTPS certificate issuance |
 | TCP | 443 | App: API, chat and voice signaling |
 | TCP | 7881 | Voice/video fallback when UDP is blocked |
-| UDP | 50000-50100 | Voice/video (main path) |
+| UDP | 7882 | Voice/video (main path) |
 
-On a **home server**, forward the same ports on your router to the server's (static) LAN IP, and make sure your
-connection **isn't behind CGNAT**: the IP at https://api.ipify.org must match the router's WAN IP.
+Don't open TCP 7880 (LiveKit's plain HTTP signaling): Caddy already serves it over HTTPS at `wss://DOMAIN/rtc`.
 
 ### Oracle Cloud only
 
@@ -59,7 +58,7 @@ sudo iptables -I INPUT -p tcp -m multiport --dports 80,443,7881 -j ACCEPT
 ```
 
 ```bash
-sudo iptables -I INPUT -p udp --dport 50000:50100 -j ACCEPT
+sudo iptables -I INPUT -p udp --dport 7882 -j ACCEPT
 ```
 
 ```bash
@@ -112,20 +111,18 @@ The prompts are in Portuguese:
 
 | Prompt | Meaning | What to enter |
 |---|---|---|
-| `Subdomínio DuckDNS` | DuckDNS subdomain | Only for a home server with a dynamic IP; press Enter to skip |
-| `Token do DuckDNS` | DuckDNS token | Only if you entered a subdomain |
-| `Domínio` | Domain | Press Enter for `YOUR-IP.sslip.io` (or the DuckDNS name), or type your own domain |
+| `Domínio` | Domain | Press Enter for `YOUR-IP.sslip.io`, or type your own domain (the same one baked into an app you already shipped) |
 | `Nome do servidor` | Server name | Shown at the top of the app |
-| `Senha para os amigos entrarem` | Password | The password your friends will use |
+| `Senha para os amigos entrarem` | Password | The password your friends will use (the same one baked into an app you already shipped) |
 | `Canais de voz` | Voice channels | Initial channels, e.g. `General,Games,Movies` |
 
 The installer then:
 
-1. installs Docker, curl, openssl and cron if missing;
+1. installs Docker, curl and openssl if missing;
 2. generates the secrets and writes `deploy/.env` (mode `600`);
-3. opens the ports in `ufw` if it's active;
-4. if DuckDNS is configured, points it at your IP and schedules `duckdns.sh` every 5 minutes (it also restarts
-   LiveKit when the IP changes);
+3. checks that the domain resolves to this server's public IP (otherwise the HTTPS certificate can't be issued)
+   and asks before going on if it doesn't;
+4. opens the ports in `ufw` if it's active;
 5. builds and starts the containers.
 
 It finishes by printing the address to use, e.g. `Pronto! No app, use o endereço: https://203-0-113-5.sslip.io`
@@ -141,7 +138,13 @@ It finishes by printing the address to use, e.g. `Pronto! No app, use o endereç
 docker compose ps
 ```
 
-`app`, `livekit` and `caddy` should all be `running`. Then, from your PC:
+`app`, `livekit` and `caddy` should all be `running`. LiveKit should announce the VPS's public IP:
+
+```bash
+docker compose logs livekit | grep "using external IPs"
+```
+
+Then, from your PC:
 
 ```bash
 curl https://YOUR-DOMAIN/api/health
@@ -150,7 +153,7 @@ curl https://YOUR-DOMAIN/api/health
 Expected response: `{"ok":true}`.
 
 Join a voice channel and ask a friend to join too, ideally **from a different network** (e.g. a phone hotspot),
-to confirm the UDP ports are reachable.
+to confirm the UDP port is reachable. The stats icon on a video should show a direct UDP connection.
 
 ---
 
@@ -207,8 +210,7 @@ The SFU forwards one copy of each stream **per viewer**, from the server's uploa
 | 1080p 30 fps | up to ~10 Mbps | up to ~20 Mbps |
 | 720p 30 fps | up to ~5 Mbps | up to ~10 Mbps |
 
-VPS plans usually have plenty of upload. On a home server, measure it (`speedtest-cli --secure --simple`) and
-leave ~30% headroom.
+VPS plans usually have plenty of upload; what matters is the **monthly traffic** included in the plan (see step 1).
 
 In a call, the **stats icon** on each video shows resolution, fps, bitrate, packet loss, the connection type and
 `Limitado por` ("limited by": `CPU` or `banda`, i.e. bandwidth). That's the quickest way to find out why a stream
@@ -248,13 +250,29 @@ Changing the password **logs everyone out**; rebuild and resend the installer wi
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | LiveKit keys (keep private) |
 | `CHANNELS` | Channels created on the **first** start (manage them from the app afterwards) |
 | `MAX_UPLOAD_MB` | Max file size in the chat (default 100) |
-| `DUCKDNS_SUBDOMAIN` / `DUCKDNS_TOKEN` | Optional, for a home server with a dynamic IP |
 
 ### Using your own domain
 
-1. Create an **A record** pointing `resenha.yourdomain.com` to the server IP.
+1. Create an **A record** pointing `resenha.yourdomain.com` to the server IP. On Cloudflare DNS, set it to
+   **DNS only** (grey cloud): the proxy limits uploads to 100 MB and adds a hop to every request.
 2. Set `DOMAIN=` in `deploy/.env` and run `docker compose up -d`.
 3. Update `VITE_SERVER_URL` in `client/.env`, rebuild the installer and resend it.
+
+### Moving from the Proxmox/Cloudflare setup (same domain)
+
+The app finds LiveKit through the server, so if the new server keeps the old `APP_DOMAIN` and password, **the
+installer your friends already have keeps working**, with no rebuild.
+
+1. **Cloudflare dashboard:** in Zero Trust → Networks → Tunnels, delete the tunnel's public hostnames (the app
+   domain and the `voz.` one). Then in DNS, replace the app domain's tunnel CNAME with an **A record** pointing at
+   the VPS IP, **DNS only** (grey cloud).
+2. **VPS:** run `install.sh` with `Domínio` = the old `APP_DOMAIN` and the same `SERVER_PASSWORD`. Copying the old
+   `JWT_SECRET` into `deploy/.env` is optional: with it, friends stay logged in; without it, they type their
+   nickname once more.
+3. **Proxmox:** in the old `deploy/cloudflare/` folder, stop it with `docker compose down`, then remove the
+   `ip-watch.sh` line from `crontab -e`.
+
+This setup starts with an empty server (no messages or files from the old one).
 
 ---
 
@@ -263,13 +281,13 @@ Changing the password **logs everyone out**; rebuild and resend the installer wi
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | App says *"Não foi possível conectar ao servidor"* ("couldn't connect to the server") | Port 443 closed or certificate not issued yet | Check step 2; see `docker compose logs caddy` |
-| Caddy shows certificate / ACME errors | Port 80 closed | Open TCP 80 (Let's Encrypt needs it) |
-| Chat works but voice is stuck on *"Conectando…"* ("connecting") or drops | LiveKit ports blocked | Open UDP 50000-50100 and TCP 7881; on Oracle, run the `iptables` commands |
+| Caddy shows certificate / ACME errors | Port 80 closed, or the domain doesn't point at the VPS | Open TCP 80 (Let's Encrypt needs it); check the A record (DNS only, no tunnel CNAME) |
+| Chat works but voice is stuck on *"Conectando…"* ("connecting") or drops | LiveKit ports blocked | Open UDP 7882 and TCP 7881; on Oracle, run the `iptables` commands |
 | Connected to voice but nobody hears anybody | UDP blocked on someone's network | Make sure TCP 7881 is open (automatic fallback) |
 | Streams stutter / low fps | Not enough upload, or a weak PC encoding the stream | Check the stats panel: use 720p if limited by bandwidth (`banda`) |
 | *"Senha do servidor incorreta"* ("wrong server password") for everyone | Password changed in `.env` | Use the current one (`grep SERVER_PASSWORD .env`) and rebuild the installer |
 | Large uploads fail | Above `MAX_UPLOAD_MB` | Raise it in `.env`, then `docker compose up -d` |
-| `install.sh: $'\r': command not found` | Windows line endings | `sed -i 's/\r$//' install.sh duckdns.sh` |
+| `install.sh: $'\r': command not found` | Windows line endings | `sed -i 's/\r$//' install.sh` |
 | Containers keep restarting on a 1 GB server | Out of memory during the build | Add swap: `sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile` |
 
 ---

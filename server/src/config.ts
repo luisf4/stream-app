@@ -30,12 +30,6 @@ export const config = {
     // URL que o app usa para falar com o LiveKit (ws:// local, wss://dominio em produção)
     publicUrl: env.LIVEKIT_PUBLIC_URL || 'ws://localhost:7880',
   },
-  // TURN do Cloudflare (Realtime): quando configurado, toda a mídia passa por ele,
-  // então o servidor não precisa de nenhuma porta aberta.
-  cloudflareTurn: {
-    keyId: env.CLOUDFLARE_TURN_KEY_ID ?? '',
-    apiToken: env.CLOUDFLARE_TURN_API_TOKEN ?? '',
-  },
   defaultChannels: (env.CHANNELS ?? 'Geral,Jogos,Filmes')
     .split(',')
     .map((s) => s.trim())

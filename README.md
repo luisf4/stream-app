@@ -4,8 +4,7 @@
 
 One server, a few voice channels, and inside each channel: voice chat, screen sharing with system audio,
 webcams and a text chat with history and file uploads. It ships as a lightweight Windows installer and
-the whole backend runs on a single home server (a Proxmox LXC container), **without opening a single port
-on the home router** and without paying for media infrastructure.
+the whole backend runs on a single small VPS with Docker Compose, with self-hosted media (no paid video API).
 
 > *"Resenha"* is Brazilian slang for hanging out and chatting with friends.
 
@@ -33,8 +32,8 @@ on the home router** and without paying for media infrastructure.
 - One-click NSIS installer
 
 **Self-hosting**
-- One script installs everything with Docker Compose
-- Two deployment modes: a regular VPS with open ports, or a **home server behind NAT with no open ports**
+- One script installs everything with Docker Compose on a VPS, with automatic HTTPS (Caddy + Let's Encrypt)
+- No domain required (`YOUR-IP.sslip.io` works out of the box)
 
 ---
 
@@ -42,60 +41,39 @@ on the home router** and without paying for media infrastructure.
 
 ```mermaid
 flowchart LR
-  subgraph Clients["Windows clients (Electron + React)"]
+  subgraph Clients["Desktop clients (Electron + React)"]
     A[Friend A]
     B[Friend B]
   end
 
-  subgraph CF["Cloudflare (free tier)"]
-    T[Tunnel<br/>HTTPS / WebSocket]
-    R[TURN relay<br/>Realtime]
-  end
-
-  subgraph Home["Home server · Proxmox LXC · Docker"]
-    CD[cloudflared]
+  subgraph VPS["Cloud VPS · Docker"]
+    CA[Caddy<br/>HTTPS :443]
     APP[app server<br/>Fastify + Socket.IO + SQLite]
     LK[LiveKit SFU]
   end
 
-  A & B -- "login, chat, signaling" --> T --> CD
-  CD --> APP
-  CD --> LK
-  A & B <-- "audio / video (UDP)" --> R <--> LK
-  APP -. "LiveKit tokens +<br/>TURN credentials" .-> A & B
+  A & B -- "login, chat, signaling (HTTPS / WebSocket)" --> CA
+  CA --> APP
+  CA -- "/rtc" --> LK
+  A & B <-- "audio / video (UDP 7882, TCP 7881 fallback)" --> LK
+  APP -. "LiveKit tokens" .-> A & B
 ```
 
 | Component | Role |
 |---|---|
 | **Client** (`client/`) | Electron + React + TypeScript. Voice/video through `livekit-client`, real-time chat through Socket.IO, state in Zustand. |
-| **App server** (`server/`) | Node + Fastify + Socket.IO + SQLite (`node:sqlite`). Password + nickname login (JWT), channels, messages, uploads, voice presence, LiveKit access tokens and short-lived Cloudflare TURN credentials. |
-| **LiveKit** | Open-source WebRTC SFU: every participant uploads their stream once and the server forwards it to the others. |
-| **Cloudflare Tunnel** | Exposes the app server and LiveKit signaling over HTTPS through an *outbound* connection, so the router needs no port forwarding (it even works behind CGNAT). |
-| **Cloudflare TURN** | Relays the UDP media that the HTTP tunnel can't carry. Clients connect to the relay, and LiveKit reaches the relay from inside the home network. |
+| **App server** (`server/`) | Node + Fastify + Socket.IO + SQLite (`node:sqlite`). Password + nickname login (JWT), channels, messages, uploads, voice presence and LiveKit access tokens. |
+| **LiveKit** | Open-source WebRTC SFU: every participant uploads their stream once and the server forwards it to the others. All media goes through a single UDP port. |
+| **Caddy** | Automatic HTTPS. Serves the app server and LiveKit signaling (`/rtc`) on the same domain. |
 
-When a client is on the **same LAN as the server**, it connects to LiveKit directly instead of going out to
-Cloudflare and back, so a streamer at home doesn't spend the home upload bandwidth on their own stream.
+The client only knows the app server's address. The server hands it the LiveKit URL together with each token, so
+the infrastructure can change without rebuilding the app.
 
 ---
 
 ## Engineering highlights
 
 Some of the more interesting problems solved along the way:
-
-- **Media behind a NAT with no open ports.** An HTTP tunnel can't carry WebRTC media, so all media goes through a
-  TURN relay. The server asks Cloudflare's API for short-lived TURN credentials and hands them to the client
-  together with the LiveKit token.
-
-- **A race condition that made joining voice take 15–25 s.** LiveKit's first connectivity checks reached the TURN
-  relay *before* the client had created the relay permission for the server's IP. The relay dropped them, so the
-  home router never opened the return path, and the next attempt only came 10–15 s later. Holding the client's
-  ICE candidates back for 1.5 s (via a small `RTCPeerConnection` subclass) lets the permission exist first.
-  **Joining now takes ~2 s.**
-
-- **Wrong public-IP mapping inside Docker.** LiveKit sometimes mapped the public IP onto a Docker bridge interface
-  instead of the LAN interface, which silently broke the TURN path. Restricting advertised IPs to the LAN ranges
-  fixed it, and a watchdog script (`ip-watch.sh`) restarts LiveKit when the home IP changes or the advertised
-  mapping is wrong.
 
 - **Screen sharing capped at 2.5 Mbps / 15 fps.** LiveKit reads `screenShareEncoding` (not `videoEncoding`) for
   screen tracks, so the configured bitrate was ignored and WebRTC's default cap applied. On top of that, WebRTC's
@@ -113,8 +91,26 @@ Some of the more interesting problems solved along the way:
   element, which keeps the browser's echo cancellation working. Above 100% it switches that user to a Web Audio
   `GainNode`.
 
+### Earlier: home-server mode
+
+The first version ran on a Proxmox LXC container at home, behind NAT with **no open ports**: the app and LiveKit
+signaling went out through a Cloudflare Tunnel, and all media went through Cloudflare's TURN relay, with
+short-lived credentials generated by the server. It worked, but every viewer's copy of a stream left through the
+home upload, which capped stream quality, so the project moved to a VPS. Problems solved along the way:
+
+- **A race condition that made joining voice take 15–25 s.** LiveKit's first connectivity checks reached the TURN
+  relay *before* the client had created the relay permission for the server's IP. The relay dropped them, so the
+  home router never opened the return path, and the next attempt only came 10–15 s later. Holding the client's
+  ICE candidates back for 1.5 s (via a small `RTCPeerConnection` subclass) let the permission exist first.
+  **Joining dropped to ~2 s.**
+
+- **Wrong public-IP mapping inside Docker.** LiveKit sometimes mapped the public IP onto a Docker bridge interface
+  instead of the LAN interface, which silently broke the TURN path. Restricting advertised IPs to the LAN ranges
+  fixed it, and a watchdog script restarted LiveKit when the home IP changed or the advertised mapping was
+  wrong.
+
 - **TCP vs UDP relays.** When TCP/TLS TURN candidates won the ICE race, video stuttered on every lost packet. The
-  first connection attempt now offers UDP relays only, and TCP/TLS are kept as a fallback for networks that block UDP.
+  first connection attempt offered UDP relays only, keeping TCP/TLS as a fallback for networks that block UDP.
 
 ---
 
@@ -125,8 +121,7 @@ RNNoise (`@sapphi-red/web-noise-suppressor`), electron-builder
 
 **Server:** Node 24, Fastify 5, Socket.IO, SQLite (`node:sqlite`), JSON Web Tokens, livekit-server-sdk
 
-**Infrastructure:** LiveKit SFU, Docker Compose, Cloudflare Tunnel, Cloudflare Realtime TURN, Caddy (HTTPS for the
-open-ports mode), Proxmox LXC
+**Infrastructure:** LiveKit SFU, Docker Compose, Caddy (automatic HTTPS), any Linux VPS
 
 ---
 
@@ -141,8 +136,7 @@ client/                Windows app (Electron + React)
     src/lib/noise.ts   RNNoise processor and mic test
     src/lib/image.ts   Client-side image optimization
 server/                App server (Fastify + Socket.IO + SQLite)
-deploy/                VPS / open-ports mode: app + LiveKit + Caddy (automatic HTTPS)
-deploy/cloudflare/     Home-server mode: app + LiveKit + cloudflared, no open ports
+deploy/                VPS deployment: app + LiveKit + Caddy (automatic HTTPS)
 ```
 
 ---
@@ -178,13 +172,9 @@ npm run dev:2
 
 ## Deploying
 
-| Mode | Guide |
-|---|---|
-| **Home server, no open ports** (Proxmox + Cloudflare Tunnel + Cloudflare TURN) | [DEPLOY-PROXMOX.md](DEPLOY-PROXMOX.md) |
-| **VPS or server with open ports** (self-hosted LiveKit, automatic HTTPS with Caddy) | [DEPLOY.md](DEPLOY.md) |
-
-Each mode has an `install.sh` that installs Docker, asks for the server password and credentials (prompts are in
-Portuguese; the guides translate them), generates the secrets and starts the stack.
+See [DEPLOY.md](DEPLOY.md). On a VPS with TCP 80, 443, 7881 and UDP 7882 open, `deploy/install.sh` installs
+Docker, asks for the domain and server password (prompts are in Portuguese; the guide translates them), generates
+the secrets and starts the stack.
 
 To build the Windows installer with the server address embedded, copy `client/.env.example` to `client/.env`,
 fill in `VITE_SERVER_URL` and `VITE_SERVER_PASSWORD`, and run:
@@ -205,10 +195,9 @@ All secrets (`.env` files) are git-ignored; only `*.env.example` templates are c
 
 ## Limitations
 
-- **Bandwidth:** the SFU runs at home, so every viewer's copy of a stream leaves through the home upload
-  (~10 Mbps per viewer at 1080p30, ~5 Mbps at 720p30; up to ~20 and ~10 Mbps in "games and video" mode).
-- **TURN quota:** Cloudflare's free tier covers 1,000 GB/month of relayed media, which is plenty for voice and
-  several hours of screen sharing per day.
+- **Traffic:** the SFU sends one copy of each stream per viewer (~10 Mbps per viewer at 1080p30, ~5 Mbps at
+  720p30; up to ~20 and ~10 Mbps in "games and video" mode), so the VPS plan's monthly traffic is what limits
+  streaming time.
 - **System audio capture:** the app asks Chromium to exclude its own audio from the loopback capture. Depending on
   the Windows/Chromium version, other participants' voices could leak into a shared stream. The planned fix is a
   native module using Windows' process-loopback exclusion.

@@ -84,11 +84,7 @@ export class Api {
   }
 
   livekitToken(channelId: string) {
-    return this.get<{
-      url: string
-      token: string
-      iceServers?: RTCIceServer[] | null
-    }>(
+    return this.get<{ url: string; token: string }>(
       `/api/livekit-token?channel=${encodeURIComponent(channelId)}`,
     )
   }

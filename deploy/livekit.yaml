@@ -2,11 +2,11 @@
 port: 7880
 rtc:
   tcp_port: 7881
-  port_range_start: 50000
-  port_range_end: 50100
+  # Toda a mídia por UDP numa porta só (em vez de um range): uma regra só no firewall da cloud.
+  udp_port: 7882
   use_external_ip: true
-  # Atrás de um roteador sem portas abertas (Cloudflare) ou sem "NAT loopback", o LiveKit não
-  # consegue validar o próprio IP público e deixaria de anunciá-lo — aí o TURN não alcança a mídia.
+  # Em clouds com NAT 1:1 (Oracle, AWS: a VM só enxerga o IP privado) a validação do IP público
+  # pode falhar, e aí o LiveKit deixaria de anunciá-lo e ninguém de fora conectaria.
   skip_external_ip_validation: true
   # Em congestionamento, reduz a qualidade em vez de pausar o vídeo (pausar = imagem congelada).
   congestion_control:

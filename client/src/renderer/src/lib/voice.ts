@@ -17,14 +17,6 @@ import { isAiNoise, type NoiseMode, type Settings } from './settings'
 // No modo de desenvolvimento, mostra no console cada passo da conexão de voz.
 if (import.meta.env.DEV) setLogLevel('debug')
 
-// Com o LiveKit atrás de um roteador sem portas abertas, a mídia só passa se o LiveKit mandar o
-// primeiro pacote para o TURN do Cloudflare (isso libera a volta no roteador). Mas o TURN descarta
-// esse pacote se chegar antes de o app pedir a "permissão" para o IP do servidor — e aí o LiveKit
-// só tenta de novo uns 10–15 s depois. Segurando por um instante o envio dos nossos candidatos ao
-// LiveKit, o app cria a permissão primeiro e a conexão fecha em 1–3 s.
-const CANDIDATE_DELAY_MS = 1500
-let delayCandidates = false
-
 // O controle de banda do WebRTC começa em ~300 kbps e sobe devagar: sem isto, toda transmissão de
 // tela passava quase um minuto borrada (320x180) antes de chegar na qualidade escolhida. O Chrome
 // aceita a taxa inicial no SDP (x-google-start-bitrate, em kbps) dos codecs de vídeo. Acompanha a
@@ -52,15 +44,6 @@ function withStartBitrate(sdp: string): string {
 {
   const NativePC = window.RTCPeerConnection
   window.RTCPeerConnection = class extends NativePC {
-    set onicecandidate(handler: ((ev: RTCPeerConnectionIceEvent) => void) | null) {
-      super.onicecandidate =
-        handler && delayCandidates
-          ? (ev) => setTimeout(() => handler.call(this, ev), CANDIDATE_DELAY_MS)
-          : handler
-    }
-    get onicecandidate() {
-      return super.onicecandidate
-    }
     setRemoteDescription(description: RTCSessionDescriptionInit) {
       if (description?.sdp) {
         description = { type: description.type, sdp: withStartBitrate(description.sdp) }
@@ -263,7 +246,7 @@ function wire(r: Room) {
     })
     .on(RoomEvent.MediaDevicesError, (err) => showToast(`Erro no dispositivo: ${errorText(err)}`))
     .on(RoomEvent.Disconnected, () => {
-      // saída intencional, ou uma tentativa de conexão que falhou (joinVoice tenta de novo)
+      // saída intencional, ou a tentativa de conexão que falhou (joinVoice trata)
       if (room !== r || joining === r) return
       cleanup()
       showToast('Você foi desconectado da voz')
@@ -299,18 +282,6 @@ function cleanup() {
   bump()
 }
 
-/** Só os endereços STUN e TURN por UDP (tira turn:...?transport=tcp e turns:). */
-function udpOnly(servers: RTCIceServer[]): RTCIceServer[] {
-  return servers
-    .map((s) => ({
-      ...s,
-      urls: (Array.isArray(s.urls) ? s.urls : [s.urls]).filter(
-        (u) => u.startsWith('stun:') || (u.startsWith('turn:') && !/transport=tcp/i.test(u)),
-      ),
-    }))
-    .filter((s) => s.urls.length > 0)
-}
-
 export async function joinVoice(channelId: string) {
   const { api, voiceChannelId, settings } = get()
   if (!api) return
@@ -337,45 +308,21 @@ export async function joinVoice(channelId: string) {
   let r: Room | null = null
   let lastError: unknown
   try {
-    const { url, token, iceServers } = await api.livekitToken(channelId)
-    // Com TURN configurado no servidor (Cloudflare Tunnel, sem portas abertas), a mídia só chega
-    // ao LiveKit pelo retransmissor (ver CANDIDATE_DELAY_MS). Se a 1ª tentativa ainda assim não
-    // fechar em 8 s, tentamos de novo em vez de esperar os 15 s padrão.
-    const relay = !!iceServers?.length
-    delayCandidates = relay
-    const timeouts = relay ? [8_000, 15_000] : [15_000]
-
-    for (const [index, timeout] of timeouts.entries()) {
-      if (get().voiceChannelId !== channelId) return // saiu/trocou enquanto conectava
-      const attempt = createRoom()
-      room = attempt
-      joining = attempt
-      wire(attempt)
-      // 1ª tentativa: qualquer caminho — quem está na mesma rede do servidor conecta direto
-      // (sem gastar o upload da casa) e os de fora caem no TURN, só por UDP (por TCP o vídeo
-      // engasga a cada pacote perdido). Se falhar, força o TURN e libera TCP/TLS, para redes
-      // que bloqueiam UDP.
-      const firstTry = index === 0
-      const rtcConfig: RTCConfiguration | undefined = relay
-        ? {
-            iceTransportPolicy: firstTry ? 'all' : 'relay',
-            iceServers: firstTry ? udpOnly(iceServers!) : iceServers!,
-          }
-        : undefined
-      try {
-        await attempt.connect(url, token, {
-          peerConnectionTimeout: timeout,
-          ...(rtcConfig ? { rtcConfig } : {}),
-        })
-        r = attempt
-        lastError = undefined
-        break
-      } catch (err) {
-        lastError = err
-        await attempt.disconnect()
-      } finally {
-        if (joining === attempt) joining = null
-      }
+    const { url, token } = await api.livekitToken(channelId)
+    if (get().voiceChannelId !== channelId) return // saiu/trocou enquanto conectava
+    const attempt = createRoom()
+    room = attempt
+    joining = attempt
+    wire(attempt)
+    try {
+      // sem UDP, o próprio LiveKit cai para TCP (porta 7881)
+      await attempt.connect(url, token, { peerConnectionTimeout: 15_000 })
+      r = attempt
+    } catch (err) {
+      lastError = err
+      await attempt.disconnect()
+    } finally {
+      if (joining === attempt) joining = null
     }
   } catch (err) {
     lastError = err
