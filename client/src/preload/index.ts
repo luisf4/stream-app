@@ -53,6 +53,8 @@ const api = {
       ipcRenderer.removeListener('update:ready', listener)
     }
   },
+  /** Versão já baixada esperando instalar (ou null), para quando a tela abre depois do download. */
+  pendingUpdate: (): Promise<string | null> => ipcRenderer.invoke('update:pending'),
   installUpdate: () => ipcRenderer.send('update:install'),
 }
 

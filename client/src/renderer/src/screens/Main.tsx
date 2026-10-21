@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChatPanel } from '../components/ChatPanel'
-import { ChatIcon, CloseIcon, HashIcon, SpeakerIcon } from '../components/Icons'
+import { ChatIcon, HashIcon, SpeakerIcon } from '../components/Icons'
 import { ScreenPicker } from '../components/ScreenPicker'
 import { SettingsModal } from '../components/SettingsModal'
 import { Sidebar } from '../components/Sidebar'
@@ -70,7 +70,10 @@ export function Main() {
 
   // atualização automática: não instala no meio de uma call
   useEffect(() => window.api.setInVoice(!!voiceChannelId), [voiceChannelId])
-  useEffect(() => window.api.onUpdateReady(setUpdateVersion), [])
+  useEffect(() => {
+    void window.api.pendingUpdate().then((version) => version && setUpdateVersion(version))
+    return window.api.onUpdateReady(setUpdateVersion)
+  }, [])
 
   return (
     <div className="app">
@@ -118,17 +121,24 @@ export function Main() {
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {toast && <div className="toast">{toast}</div>}
       {updateVersion && (
-        <div className="update-banner">
-          <span>
-            Versão {updateVersion} baixada. Instala sozinha quando você fechar a janela
-            {voiceChannelId ? ', depois de sair da voz' : ''}.
-          </span>
-          <button className="btn primary" onClick={() => window.api.installUpdate()}>
-            Reiniciar agora
-          </button>
-          <button className="icon-btn" title="Depois" onClick={() => setUpdateVersion(null)}>
-            <CloseIcon size={16} />
-          </button>
+        <div className="update-card" role="status">
+          <div className="update-card-text">
+            <strong>Atualização pronta</strong>
+            <span>
+              A versão {updateVersion} já foi baixada.
+              {voiceChannelId
+                ? ' Ela instala sozinha quando você sair da voz e fechar a janela.'
+                : ' Ela instala sozinha quando você fechar a janela.'}
+            </span>
+          </div>
+          <div className="update-card-actions">
+            <button className="btn ghost" onClick={() => setUpdateVersion(null)}>
+              Depois
+            </button>
+            <button className="btn primary" onClick={() => window.api.installUpdate()}>
+              {voiceChannelId ? 'Sair da call e instalar' : 'Reiniciar e instalar'}
+            </button>
+          </div>
         </div>
       )}
     </div>

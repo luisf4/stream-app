@@ -1388,22 +1388,49 @@ a {
   background: var(--text);
 }
 
-.update-banner {
+.update-card {
   position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 20px;
+  /* acima da caixa de mensagem do chat */
+  bottom: 84px;
   z-index: 60;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  width: 340px;
+  max-width: calc(100% - 40px);
+  padding: 16px;
+  border-radius: 12px;
   background: var(--bg-3);
-  color: var(--text-strong);
-  padding: 8px 8px 8px 16px;
-  border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
-  max-width: calc(100% - 32px);
+  border: 1px solid var(--bg-active);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.5);
+  animation: update-card-in 0.25s ease-out;
+}
+.update-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   font-size: 14px;
+}
+.update-card-text strong {
+  color: var(--text-strong);
+}
+.update-card-text span {
+  color: var(--text-muted);
+}
+.update-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+@keyframes update-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-card {
+    animation: none;
+  }
 }
 
 .toast {

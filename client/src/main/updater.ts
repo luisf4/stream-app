@@ -1,4 +1,4 @@
-import { app, ipcMain, type BrowserWindow } from 'electron'
+import { app, ipcMain, Notification, type BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -11,7 +11,8 @@ import { join } from 'node:path'
 
 const CHECK_EVERY_MS = 60 * 60 * 1000
 
-let ready = false
+/** versão nova já baixada, esperando instalar */
+let readyVersion: string | null = null
 let inVoice = false
 
 // Atualizou sozinho com o app na bandeja: reabre lá mesmo, sem a janela pular na tela.
@@ -39,6 +40,8 @@ export function setupUpdater(getWindow: () => BrowserWindow | null, testProfile:
     installIfIdle(getWindow())
   })
   ipcMain.on('update:install', () => install())
+  // a tela pode abrir (ou recarregar) depois do download: pergunta se já tem versão esperando
+  ipcMain.handle('update:pending', () => readyVersion)
 
   const url = feedUrl()
   const password = import.meta.env.VITE_SERVER_PASSWORD
@@ -51,10 +54,10 @@ export function setupUpdater(getWindow: () => BrowserWindow | null, testProfile:
 
   autoUpdater.on('error', (err) => console.warn('[updater]', err.message))
   autoUpdater.on('update-downloaded', (info) => {
-    ready = true
+    readyVersion = info.version
     const win = getWindow()
     win?.webContents.send('update:ready', info.version)
-    installIfIdle(win)
+    if (!installIfIdle(win)) notifyReady(info.version, getWindow)
   })
 
   const check = () => void autoUpdater.checkForUpdates().catch(() => {})
@@ -62,13 +65,37 @@ export function setupUpdater(getWindow: () => BrowserWindow | null, testProfile:
   setInterval(check, CHECK_EVERY_MS)
 }
 
-/** Chamado quando a janela some (bandeja) ou a pessoa sai da voz. */
-export function installIfIdle(win: BrowserWindow | null) {
-  if (ready && !inVoice && (!win || !win.isVisible())) install(true)
+/** Notificação do Windows (canto de baixo da tela): clicar instala na hora. */
+function notifyReady(version: string, getWindow: () => BrowserWindow | null) {
+  if (!Notification.isSupported()) return
+  const notification = new Notification({
+    title: 'Atualização do Resenha pronta',
+    body: inVoice
+      ? `Versão ${version} baixada. Clique para instalar agora (sai da call) ou ela instala depois da voz.`
+      : `Versão ${version} baixada. Clique para reiniciar e instalar.`,
+  })
+  notification.on('click', () => {
+    if (inVoice) {
+      // no meio da call só abre o app; o aviso lá dentro tem o botão para instalar
+      const win = getWindow()
+      win?.show()
+      win?.focus()
+    } else {
+      install()
+    }
+  })
+  notification.show()
+}
+
+/** Chamado quando a janela some (bandeja) ou a pessoa sai da voz. true = está instalando. */
+export function installIfIdle(win: BrowserWindow | null): boolean {
+  if (!readyVersion || inVoice || (win && win.isVisible())) return false
+  install(true)
+  return true
 }
 
 function install(hidden = false) {
-  if (!ready) return
+  if (!readyVersion) return
   if (hidden) writeFileSync(hiddenMarker(), '')
   // silencioso (sem a tela do instalador) e reabre o app no fim
   autoUpdater.quitAndInstall(true, true)
