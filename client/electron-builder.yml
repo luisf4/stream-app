@@ -20,7 +20,8 @@ publish:
   url: https://localhost/api/updates
 win:
   target: nsis
-  icon: resources/icon.png
+  # fundo branco com cantos arredondados (barra de tarefas, atalho, instalador)
+  icon: resources/icon-win.png
   artifactName: Resenha-Setup-${version}.${ext}
 nsis:
   oneClick: true

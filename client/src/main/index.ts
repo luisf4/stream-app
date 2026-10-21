@@ -23,6 +23,9 @@ if (profile) app.setPath('userData', join(app.getPath('appData'), `Resenha-${pro
 
 const iconPath = join(__dirname, '../../resources/icon.png')
 const isMac = process.platform === 'darwin'
+// Windows: a janela (barra de tarefas) usa o ícone com fundo branco e cantos arredondados
+const windowIconPath =
+  process.platform === 'win32' ? join(__dirname, '../../resources/icon-win.png') : iconPath
 
 const features: string[] = []
 // macOS 13+: áudio do sistema no compartilhamento de tela via ScreenCaptureKit.
@@ -55,7 +58,7 @@ function createWindow() {
     show: false,
     title: 'Resenha',
     backgroundColor: '#1a1b1e',
-    icon: iconPath,
+    icon: windowIconPath,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
