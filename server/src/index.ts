@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
 import { Server } from 'socket.io'
 import { config, uploadDir } from './config.js'
+import { registerDownloadPage } from './download.js'
 import { setupRealtime } from './realtime.js'
 import { isInlineFile, registerRoutes } from './routes.js'
 
@@ -27,6 +28,7 @@ await app.register(fastifyStatic, {
 })
 
 registerRoutes(app)
+registerDownloadPage(app)
 
 const io = new Server(app.server, { cors: { origin: true }, maxHttpBufferSize: 1e6 })
 setupRealtime(io)
