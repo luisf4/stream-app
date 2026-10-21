@@ -9,7 +9,7 @@ import { join } from 'node:path'
 // A versão nova baixa em segundo plano e é instalada quando a pessoa sai do app, ou sozinha quando
 // o app está escondido na bandeja e fora da voz (para nunca derrubar uma call).
 
-const CHECK_EVERY_MS = 60 * 60 * 1000
+const CHECK_EVERY_MS = 10 * 60 * 1000
 
 /** versão nova já baixada, esperando instalar */
 let readyVersion: string | null = null
@@ -54,6 +54,8 @@ export function setupUpdater(getWindow: () => BrowserWindow | null, testProfile:
 
   autoUpdater.on('error', (err) => console.warn('[updater]', err.message))
   autoUpdater.on('update-downloaded', (info) => {
+    // checagens seguintes acham a mesma versão já baixada: não avisa de novo
+    if (info.version === readyVersion) return
     readyVersion = info.version
     const win = getWindow()
     win?.webContents.send('update:ready', info.version)

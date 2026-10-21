@@ -209,7 +209,7 @@ Friends install the app **once**. After that, every push to `main` that touches 
 1. the **Release Windows** workflow (`.github/workflows/release-win.yml`) builds the installer on a GitHub Windows
    runner, numbering it `1.1.<run number>`;
 2. it sends the installer, its `.blockmap` and `latest.yml` to the VPS over SSH, into `deploy/data/updates/`;
-3. the app checks `https://DOMAIN/api/updates/` on startup and every hour, downloads the new version in the
+3. the app checks `https://DOMAIN/api/updates/` on startup and every 10 minutes, downloads the new version in the
    background (only the changed blocks, when possible) and installs it silently when the window is closed to the
    tray and no call is running, or when the app quits. A banner also offers **Reiniciar agora** ("restart now").
 
