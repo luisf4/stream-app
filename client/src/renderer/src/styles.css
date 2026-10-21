@@ -808,6 +808,11 @@ a {
   color: var(--text);
   max-width: 100%;
 }
+.attachment-file.expired {
+  color: var(--text-muted);
+  border-style: dashed;
+  cursor: default;
+}
 .attachment-file span {
   display: flex;
   flex-direction: column;

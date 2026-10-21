@@ -7,6 +7,7 @@ import { config, uploadDir } from './config.js'
 import { registerDownloadPage } from './download.js'
 import { setupRealtime } from './realtime.js'
 import { isInlineFile, registerRoutes } from './routes.js'
+import { startImageExpiry } from './uploads.js'
 
 const app = Fastify({ logger: { level: 'info' }, trustProxy: true })
 
@@ -34,4 +35,5 @@ const io = new Server(app.server, { cors: { origin: true }, maxHttpBufferSize: 1
 setupRealtime(io)
 
 await app.listen({ port: config.port, host: config.host })
+startImageExpiry((msg) => app.log.info(msg))
 app.log.info(`Servidor "${config.serverName}" pronto. LiveKit: ${config.livekit.publicUrl}`)

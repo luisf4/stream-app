@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io'
 import { verifyToken, type User } from './auth.js'
 import {
   createChannel,
+  deleteAttachments,
   deleteChannel,
   deleteMessage,
   getAttachments,
@@ -11,6 +12,7 @@ import {
   listChannels,
   renameChannel,
 } from './db.js'
+import { removeUploads } from './uploads.js'
 
 interface VoiceState {
   userId: string
@@ -90,6 +92,7 @@ export function setupRealtime(io: Server) {
       const message = getMessage(Number(p.id))
       if (!message || message.userId !== user.id) return reply({ ok: false, error: 'Sem permissão' })
       deleteMessage(message.id)
+      removeUploads(deleteAttachments(message.attachments.map((a) => a.id)))
       io.emit('message:deleted', { id: message.id, channelId: message.channelId })
       reply({ ok: true })
     })
@@ -141,7 +144,7 @@ export function setupRealtime(io: Server) {
       const id = String(p.id)
       if (!getChannel(id)) return reply({ ok: false, error: 'Canal não encontrado' })
       if (listChannels().length <= 1) return reply({ ok: false, error: 'Precisa ter pelo menos 1 canal' })
-      deleteChannel(id)
+      removeUploads(deleteChannel(id))
       for (const [socketId, state] of voice) if (state.channelId === id) voice.delete(socketId)
       io.emit('channels', listChannels())
       io.emit('voice:states', voiceList())

@@ -35,6 +35,8 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
   maxUploadMb: Number(env.MAX_UPLOAD_MB ?? 100),
+  // imagens do chat são apagadas do disco depois disto (vídeos e outros arquivos ficam)
+  imageTtlDays: Number(env.IMAGE_TTL_DAYS ?? 30),
   dataDir: resolve(env.DATA_DIR ?? './data'),
 }
 

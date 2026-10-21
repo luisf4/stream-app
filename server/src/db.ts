@@ -18,6 +18,8 @@ export interface Attachment {
   mime: string
   size: number
   url: string
+  /** imagem mais velha que IMAGE_TTL_DAYS: o arquivo já foi (ou vai ser) apagado */
+  expired?: boolean
 }
 
 export interface Message {
@@ -98,9 +100,15 @@ export function renameChannel(id: string, name: string): void {
   db.prepare('UPDATE channels SET name = ? WHERE id = ?').run(name, id)
 }
 
-export function deleteChannel(id: string): void {
+/** Apaga o canal e as mensagens; devolve os arquivos dos anexos para apagar do disco. */
+export function deleteChannel(id: string): string[] {
+  const rows = db.prepare('SELECT attachments FROM messages WHERE channel_id = ?').all(id) as {
+    attachments: string
+  }[]
+  const ids = rows.flatMap((r) => (JSON.parse(r.attachments) as Attachment[]).map((a) => a.id))
   db.prepare('DELETE FROM messages WHERE channel_id = ?').run(id)
   db.prepare('DELETE FROM channels WHERE id = ?').run(id)
+  return deleteAttachments(ids)
 }
 
 const { count } = db.prepare('SELECT COUNT(*) AS count FROM channels').get() as { count: number }
@@ -136,6 +144,29 @@ export function insertAttachment(
   return toAttachment(row)
 }
 
+/** Tira os anexos do banco e devolve os nomes dos arquivos (para apagar do disco). */
+export function deleteAttachments(ids: string[]): string[] {
+  const select = db.prepare('SELECT file FROM attachments WHERE id = ?')
+  const remove = db.prepare('DELETE FROM attachments WHERE id = ?')
+  return ids.flatMap((id) => {
+    const row = select.get(id) as { file: string } | undefined
+    remove.run(id)
+    return row ? [row.file] : []
+  })
+}
+
+/** Imagens enviadas antes de `cutoff` (ms): sai do banco e devolve os arquivos. */
+export function expireImages(cutoff: number): string[] {
+  const rows = db
+    .prepare("SELECT id FROM attachments WHERE mime LIKE 'image/%' AND created_at < ?")
+    .all(cutoff) as { id: string }[]
+  return deleteAttachments(rows.map((r) => r.id))
+}
+
+/** Imagens enviadas antes disto (ms) já expiraram. IMAGE_TTL_DAYS=0 desliga a expiração. */
+export const imageCutoff = () =>
+  config.imageTtlDays > 0 ? Date.now() - config.imageTtlDays * 24 * 60 * 60 * 1000 : -Infinity
+
 export function getAttachments(ids: string[], userId: string): Attachment[] {
   const stmt = db.prepare(
     'SELECT id, file, name, mime, size FROM attachments WHERE id = ? AND user_id = ?',
@@ -158,15 +189,20 @@ interface MessageRow {
   created_at: number
 }
 
-const toMessage = (row: MessageRow): Message => ({
-  id: row.id,
-  channelId: row.channel_id,
-  userId: row.user_id,
-  nickname: row.nickname,
-  content: row.content,
-  attachments: JSON.parse(row.attachments) as Attachment[],
-  createdAt: row.created_at,
-})
+const toMessage = (row: MessageRow): Message => {
+  const expired = row.created_at < imageCutoff()
+  return {
+    id: row.id,
+    channelId: row.channel_id,
+    userId: row.user_id,
+    nickname: row.nickname,
+    content: row.content,
+    attachments: (JSON.parse(row.attachments) as Attachment[]).map((a) =>
+      expired && a.mime.startsWith('image/') ? { ...a, expired: true } : a,
+    ),
+    createdAt: row.created_at,
+  }
+}
 
 export function getMessages(channelId: string, before: number | undefined, limit: number): Message[] {
   const rows = (

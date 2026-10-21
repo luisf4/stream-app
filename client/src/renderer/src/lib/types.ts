@@ -24,6 +24,8 @@ export interface Attachment {
   mime: string
   size: number
   url: string
+  /** imagem antiga já apagada do servidor (as imagens duram 30 dias) */
+  expired?: boolean
 }
 
 export interface Message {

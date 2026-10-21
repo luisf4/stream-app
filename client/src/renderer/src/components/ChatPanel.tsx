@@ -334,6 +334,17 @@ function AttachmentView({
   onLoad: () => void
   onOpenImage: (image: { src: string; name: string }) => void
 }) {
+  if (a.expired) {
+    return (
+      <div className="attachment-file expired" title={a.name}>
+        <FileIcon size={28} />
+        <span>
+          <b>Imagem expirada</b>
+          <small>As imagens ficam disponíveis por 30 dias</small>
+        </span>
+      </div>
+    )
+  }
   if (a.mime.startsWith('image/') && a.mime !== 'image/svg+xml') {
     return (
       <div className="attachment-image-wrap">

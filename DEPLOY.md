@@ -283,6 +283,7 @@ Changing the password **logs everyone out**; rebuild and resend the installer wi
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | LiveKit keys (keep private) |
 | `CHANNELS` | Channels created on the **first** start (manage them from the app afterwards) |
 | `MAX_UPLOAD_MB` | Max file size in the chat (default 100) |
+| `IMAGE_TTL_DAYS` | Chat images are deleted from the server after this many days (default 30; `0` keeps them forever). Videos and other files are kept |
 
 ### Using your own domain
 
