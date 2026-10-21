@@ -1567,3 +1567,35 @@ a {
     transition: none;
   }
 }
+
+.update-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.update-status > div {
+  flex: 1;
+  min-width: 0;
+}
+.update-progress {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 3px;
+  background: var(--bg-0);
+  overflow: hidden;
+}
+.update-progress > div {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.btn.ghost-outline {
+  border: 1px solid var(--bg-active);
+  background: var(--bg-2);
+  white-space: nowrap;
+}
+.btn.ghost-outline:hover:not(:disabled) {
+  background: var(--bg-hover);
+}

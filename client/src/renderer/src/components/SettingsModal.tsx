@@ -203,10 +203,10 @@ function AccountTab({ onClose }: { onClose: () => void }) {
           <dd>{session.user.nickname}</dd>
           <dt>Servidor</dt>
           <dd>{session.serverUrl}</dd>
-          <dt>Versão do app</dt>
-          <dd>{__APP_VERSION__}</dd>
         </dl>
       </div>
+      <h3>Atualizações</h3>
+      <UpdateCard />
       <button
         className="btn danger"
         onClick={() => {
@@ -217,6 +217,68 @@ function AccountTab({ onClose }: { onClose: () => void }) {
         <LogOutIcon size={16} /> Sair do servidor
       </button>
     </>
+  )
+}
+
+type UpdateState = Awaited<ReturnType<typeof window.api.getUpdateState>>
+
+function updateText(u: UpdateState): string {
+  switch (u.state) {
+    case 'unsupported':
+      return 'A atualização automática só funciona no app instalado no Windows.'
+    case 'checking':
+      return 'Procurando atualização…'
+    case 'none':
+      return 'Você está na versão mais nova.'
+    case 'downloading':
+      return `Baixando a versão ${u.version}… ${u.percent}%`
+    case 'ready':
+      return `A versão ${u.version} está pronta para instalar.`
+    case 'error':
+      return `Não deu para procurar agora: ${u.message}`
+    default:
+      return 'Procura sozinho a cada 10 minutos.'
+  }
+}
+
+function UpdateCard() {
+  const [update, setUpdate] = useState<UpdateState>({ state: 'idle' })
+  useEffect(() => {
+    void window.api.getUpdateState().then(setUpdate)
+    return window.api.onUpdateState(setUpdate)
+  }, [])
+
+  const busy = update.state === 'checking' || update.state === 'downloading'
+  return (
+    <div className="settings-card update-status">
+      <div>
+        <div className="setting-title">Versão {__APP_VERSION__}</div>
+        <div className="setting-description" role="status">
+          {updateText(update)}
+        </div>
+        {update.state === 'downloading' && (
+          <div className="update-progress">
+            <div style={{ width: `${update.percent}%` }} />
+          </div>
+        )}
+      </div>
+      {update.state === 'ready' ? (
+        <button className="btn primary" onClick={() => window.api.installUpdate()}>
+          Reiniciar e instalar
+        </button>
+      ) : (
+        update.state !== 'unsupported' && (
+          <button
+            className="btn ghost-outline"
+            disabled={busy}
+            onClick={() => void window.api.checkForUpdates().then(setUpdate)}
+          >
+            {busy ? <span className="spinner" aria-hidden="true" /> : null}
+            Procurar atualização
+          </button>
+        )
+      )}
+    </div>
   )
 }
 

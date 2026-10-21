@@ -210,8 +210,10 @@ Friends install the app **once**. After that, every push to `main` that touches 
    runner, numbering it `1.1.<run number>`;
 2. it sends the installer, its `.blockmap` and `latest.yml` to the VPS over SSH, into `deploy/data/updates/`;
 3. the app checks `https://DOMAIN/api/updates/` on startup and every 10 minutes, downloads the new version in the
-   background (only the changed blocks, when possible) and installs it silently when the window is closed to the
-   tray and no call is running, or when the app quits. A banner also offers **Reiniciar agora** ("restart now").
+   background (only the changed blocks, when possible) and installs it silently, never during a call: right away
+   if it finished within 2 minutes of opening the app (like Discord), when the window is closed to the tray, or
+   when the app quits. A notification and a card also offer **Reiniciar e instalar** ("restart and install"), and
+   **Configurações → Conta → Procurar atualização** checks on demand. The log is in `%APPDATA%\Resenha\logs\updater.log`.
 
 The update files are only served to requests carrying the server password, which the app already has. They aren't
 published as GitHub releases or artifacts because the repository is public and the installer contains the password.

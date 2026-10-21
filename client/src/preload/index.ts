@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { UpdateState } from '../main/updater'
 
 export interface ScreenSource {
   id: string
@@ -56,6 +57,16 @@ const api = {
   /** Versão já baixada esperando instalar (ou null), para quando a tela abre depois do download. */
   pendingUpdate: (): Promise<string | null> => ipcRenderer.invoke('update:pending'),
   installUpdate: () => ipcRenderer.send('update:install'),
+  /** Estado da atualização automática (Configurações > Conta). */
+  getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke('update:state'),
+  checkForUpdates: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
+  onUpdateState: (callback: (state: UpdateState) => void) => {
+    const listener = (_event: IpcRendererEvent, state: UpdateState) => callback(state)
+    ipcRenderer.on('update:state', listener)
+    return () => {
+      ipcRenderer.removeListener('update:state', listener)
+    }
+  },
 }
 
 export type DesktopApi = typeof api
