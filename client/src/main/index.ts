@@ -55,7 +55,6 @@ function createWindow() {
     show: false,
     title: 'Resenha',
     backgroundColor: '#1a1b1e',
-    autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -69,6 +68,10 @@ function createWindow() {
   })
 
   const startHidden = consumeStartHidden()
+  // Windows: sem a barra File/Edit/View (o Alt abria ela). No Mac o menu fica: é ele que dá
+  // Cmd+C/Cmd+V nos campos de texto.
+  if (!isMac) win.removeMenu()
+
   win.once('ready-to-show', () => {
     if (!startHidden) win?.show()
   })
