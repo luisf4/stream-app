@@ -5,7 +5,7 @@ import { emit, request } from '../lib/socket'
 import type { Attachment, Message } from '../lib/types'
 import { showToast, useStore } from '../store'
 import { Avatar } from './Avatar'
-import { CloseIcon, DownloadIcon, FileIcon, PaperclipIcon, TrashIcon } from './Icons'
+import { CloseIcon, DownloadIcon, FileIcon, PaperclipIcon, SendIcon, TrashIcon } from './Icons'
 import { ConfirmModal } from './Modal'
 
 const GROUP_WINDOW = 5 * 60_000
@@ -120,8 +120,10 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
     }
   }
 
+  const canSend = !sending && preparing === 0 && (!!text.trim() || files.length > 0)
+
   const send = async () => {
-    if (sending || preparing > 0 || (!text.trim() && files.length === 0)) return
+    if (!canSend) return
     setSending(true)
     try {
       const attachments = await Promise.all(files.map((f) => api.upload(f)))
@@ -265,6 +267,16 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
               }
             }}
           />
+          <button
+            type="button"
+            className={`icon-btn send-btn${canSend ? ' ready' : ''}`}
+            title="Enviar (Enter)"
+            aria-label="Enviar"
+            disabled={!canSend}
+            onClick={() => void send()}
+          >
+            <SendIcon size={20} />
+          </button>
         </div>
         <div className="typing">
           {sending

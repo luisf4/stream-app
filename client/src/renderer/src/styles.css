@@ -943,6 +943,22 @@ a {
   min-height: 32px;
   line-height: 1.4;
 }
+.send-btn {
+  transition: color 0.15s, background 0.15s;
+}
+.send-btn:disabled {
+  color: var(--text-muted);
+  opacity: 0.4;
+  cursor: default;
+  background: none;
+}
+.send-btn.ready {
+  color: var(--accent);
+}
+.send-btn.ready:hover {
+  color: #fff;
+  background: var(--accent);
+}
 .typing {
   height: 22px;
   font-size: 12px;
