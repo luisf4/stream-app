@@ -54,7 +54,7 @@ function createWindow() {
     minHeight: 560,
     show: false,
     title: 'Resenha',
-    backgroundColor: '#1e1f22',
+    backgroundColor: '#1a1b1e',
     autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {

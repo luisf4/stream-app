@@ -1,10 +1,10 @@
 :root {
-  --bg-0: #1e1f22;
-  --bg-1: #2b2d31;
-  --bg-2: #313338;
-  --bg-3: #383a40;
-  --bg-hover: #3f4147;
-  --bg-active: #43444b;
+  --bg-0: #1a1b1e;
+  --bg-1: #26272b;
+  --bg-2: #2c2d32;
+  --bg-3: #33343a;
+  --bg-hover: #393b41;
+  --bg-active: #3e3f46;
   --text: #dbdee1;
   --text-strong: #f2f3f5;
   --text-muted: #949ba4;
@@ -376,7 +376,7 @@ a {
   align-items: center;
   padding: 8px 8px 8px 12px;
   border-top: 1px solid var(--bg-0);
-  background: #232428;
+  background: #1f2023;
 }
 .voice-status {
   flex: 1;
@@ -404,7 +404,7 @@ a {
   align-items: center;
   gap: 8px;
   padding: 8px;
-  background: #232428;
+  background: #1f2023;
 }
 .user-info {
   flex: 1;
@@ -991,7 +991,7 @@ a {
   position: fixed;
   z-index: 60;
   min-width: 200px;
-  background: #111214;
+  background: #0e0f11;
   border-radius: 6px;
   padding: 6px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
@@ -1220,7 +1220,7 @@ a {
   left: 50%;
   transform: translateX(-50%);
   z-index: 70;
-  background: #111214;
+  background: #0e0f11;
   color: var(--text-strong);
   padding: 10px 16px;
   border-radius: 6px;
