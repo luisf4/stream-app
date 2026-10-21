@@ -64,6 +64,7 @@ export function Sidebar({
     <aside className="sidebar">
       <header className="sidebar-header">
         <span className="server-name">{session.server.name}</span>
+        <span className="app-version">v{__APP_VERSION__}</span>
       </header>
 
       <nav className="channel-list">

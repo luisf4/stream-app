@@ -1,6 +1,8 @@
 import type { DesktopApi } from '../../preload'
 
 declare global {
+  const __APP_VERSION__: string
+
   interface Window {
     api: DesktopApi
   }

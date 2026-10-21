@@ -283,12 +283,18 @@ a {
   flex-shrink: 0;
 }
 .server-name {
-  flex: 1;
+  min-width: 0;
   font-weight: 700;
   color: var(--text-strong);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.app-version {
+  margin-left: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .channel-list {
