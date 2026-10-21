@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { Api, loadSession } from './lib/api'
+import { Api, loadSession, saveSession } from './lib/api'
+import { presetServer } from './lib/config'
 import { loadSettings, saveSettings, type Settings } from './lib/settings'
 import type { Channel, Message, Session, User, VoiceState } from './lib/types'
 
@@ -35,7 +36,19 @@ export interface State {
   toast: string | null
 }
 
-const initialSession = loadSession()
+// Login salvo de outro servidor (o app foi buildado com outro endereço, ex.: depois da mudança para
+// a VPS): ele ficaria tentando conectar no endereço antigo para sempre. Volta para a tela de
+// entrada, com o apelido já preenchido.
+function currentSession() {
+  const session = loadSession()
+  if (session && presetServer && session.serverUrl !== presetServer.serverUrl) {
+    saveSession(null)
+    return null
+  }
+  return session
+}
+
+const initialSession = currentSession()
 
 export const useStore = create<State>(() => ({
   session: initialSession,
