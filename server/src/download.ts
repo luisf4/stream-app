@@ -47,7 +47,7 @@ function page(release: Release | null): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${name}</title>
-<meta name="description" content="Voz, vídeo, tela e chat para a galera.">
+<meta name="description" content="Voz, vídeo, tela e chat para a galera do churras.">
 <link rel="icon" href="/icon.png">
 <style>
   :root {
@@ -88,7 +88,7 @@ function page(release: Release | null): string {
   <main>
     <img class="logo" src="/icon.png" alt="" width="128" height="128">
     <h1>${name}</h1>
-    <p class="tagline">Voz, vídeo, tela e chat para a galera.</p>
+    <p class="tagline">Voz, vídeo, tela e chat para a galera do churras.</p>
     ${download}
     <ul>
       <li><strong>Voz com redução de ruído</strong>: some ventilador e teclado.</li>
