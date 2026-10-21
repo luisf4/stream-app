@@ -16,6 +16,8 @@ export interface State {
   messages: Record<string, Message[]>
   hasMore: Record<string, boolean>
   unread: Record<string, number>
+  /** canais com mensagem não lida que menciona você */
+  mentioned: Record<string, boolean>
   voiceStates: VoiceState[]
   online: User[]
   /** canal -> apelido -> expira em (ms) */
@@ -59,6 +61,7 @@ export const useStore = create<State>(() => ({
   messages: {},
   hasMore: {},
   unread: {},
+  mentioned: {},
   voiceStates: [],
   online: [],
   typing: {},
@@ -91,5 +94,6 @@ export function selectChannel(channelId: string) {
   useStore.setState((s) => ({
     selectedChannelId: channelId,
     unread: { ...s.unread, [channelId]: 0 },
+    mentioned: { ...s.mentioned, [channelId]: false },
   }))
 }

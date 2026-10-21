@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { formatSize, formatTime } from '../lib/format'
 import { optimizeImage } from '../lib/image'
+import { mentionQuery, mentionRegex, mentions } from '../lib/mentions'
 import { emit, request } from '../lib/socket'
 import type { Attachment, Message } from '../lib/types'
 import { showToast, useStore } from '../store'
@@ -20,6 +21,8 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
   const messages = useStore((s) => s.messages[channelId])
   const hasMore = useStore((s) => s.hasMore[channelId])
   const typingMap = useStore((s) => s.typing[channelId])
+  const online = useStore((s) => s.online)
+  const voiceStates = useStore((s) => s.voiceStates)
 
   const listRef = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
@@ -35,6 +38,49 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null)
   const [toDelete, setToDelete] = useState<Message | null>(null)
   const [now, setNow] = useState(Date.now())
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+
+  // ---------- menções (@apelido) ----------
+
+  // quem dá para mencionar: online, na voz e quem já escreveu neste canal (online primeiro)
+  const people = useMemo(() => {
+    const names = [
+      ...online.map((u) => u.nickname),
+      ...voiceStates.map((v) => v.nickname),
+      ...(messages ?? []).map((m) => m.nickname),
+    ]
+    return [...new Set(names)]
+  }, [online, voiceStates, messages])
+  const mentionRe = useMemo(() => mentionRegex([...people, me.nickname]), [people, me.nickname])
+
+  const suggestions = useMemo(() => {
+    if (!mention) return []
+    const q = mention.query.toLowerCase()
+    return people
+      .filter((name) => name !== me.nickname)
+      .filter((name) => {
+        const lower = name.toLowerCase()
+        return lower.startsWith(q) || lower.split(/\s+/).some((word) => word.startsWith(q))
+      })
+      .slice(0, 6)
+  }, [mention, people, me.nickname])
+
+  const pickMention = (name: string) => {
+    const el = textareaRef.current
+    if (!mention || !el) return
+    const caret = el.selectionStart
+    const inserted = `@${name} `
+    const next = text.slice(0, mention.start) + inserted + text.slice(caret)
+    setText(next)
+    setMention(null)
+    const pos = mention.start + inserted.length
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(pos, pos)
+    })
+  }
 
   // ---------- carregar histórico ----------
 
@@ -143,8 +189,10 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
     }
   }
 
-  const onChange = (value: string) => {
+  const onChange = (value: string, caret: number) => {
     setText(value)
+    setMention(mentionQuery(value, caret))
+    setMentionIndex(0)
     if (value && Date.now() - lastTyping.current > 3000) {
       lastTyping.current = Date.now()
       emit('typing', { channelId })
@@ -184,7 +232,12 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
           const grouped =
             prev && prev.userId === m.userId && m.createdAt - prev.createdAt < GROUP_WINDOW
           return (
-            <div key={m.id} className={`message${grouped ? ' grouped' : ''}`}>
+            <div
+              key={m.id}
+              className={`message${grouped ? ' grouped' : ''}${
+                m.userId !== me.id && mentions(m.content, me.nickname) ? ' mentioned' : ''
+              }`}
+            >
               {grouped ? (
                 <div className="message-gutter" />
               ) : (
@@ -197,7 +250,9 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
                     <span className="message-time">{formatTime(m.createdAt)}</span>
                   </div>
                 )}
-                {m.content && <div className="message-text">{linkify(m.content)}</div>}
+                {m.content && (
+                  <div className="message-text">{formatText(m.content, mentionRe, me.nickname)}</div>
+                )}
                 {m.attachments.map((a) => (
                   <AttachmentView
                     key={a.id}
@@ -234,6 +289,29 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
             ))}
           </div>
         )}
+        {suggestions.length > 0 && (
+          <div className="mention-popup" role="listbox" aria-label="Mencionar">
+            {suggestions.map((name, i) => (
+              <button
+                key={name}
+                type="button"
+                role="option"
+                aria-selected={i === mentionIndex}
+                className={i === mentionIndex ? 'active' : ''}
+                // mousedown: antes do blur do campo, que fecharia a lista
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  pickMention(name)
+                }}
+                onMouseEnter={() => setMentionIndex(i)}
+              >
+                <Avatar name={name} size={24} />
+                <span>{name}</span>
+                {online.some((u) => u.nickname === name) && <small>online</small>}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="composer-row">
           <label className="icon-btn" title="Enviar arquivo">
             <PaperclipIcon size={20} />
@@ -248,11 +326,13 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
             />
           </label>
           <textarea
+            ref={textareaRef}
             rows={1}
             value={text}
             placeholder={`Conversar em #${channel?.name ?? ''}`}
             maxLength={4000}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value, e.target.selectionStart)}
+            onBlur={() => setMention(null)}
             onPaste={(e) => {
               const pasted = [...e.clipboardData.files]
               if (pasted.length) {
@@ -261,6 +341,24 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
               }
             }}
             onKeyDown={(e) => {
+              if (suggestions.length) {
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  const step = e.key === 'ArrowDown' ? 1 : -1
+                  setMentionIndex((i) => (i + step + suggestions.length) % suggestions.length)
+                  return
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault()
+                  pickMention(suggestions[Math.min(mentionIndex, suggestions.length - 1)])
+                  return
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setMention(null)
+                  return
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
                 void send()
@@ -323,14 +421,30 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
   )
 }
 
-function linkify(text: string): ReactNode {
+/** Links clicáveis e @menções destacadas (a sua, mais forte). */
+function formatText(text: string, mentionRe: RegExp | null, myNickname: string): ReactNode {
   return text.split(URL_RE).map((part, i) =>
     i % 2 === 1 ? (
       <a key={i} href={part} target="_blank" rel="noreferrer">
         {part}
       </a>
     ) : (
-      <Fragment key={i}>{part}</Fragment>
+      <Fragment key={i}>
+        {mentionRe
+          ? part.split(mentionRe).map((piece, j) =>
+              j % 2 === 1 ? (
+                <span
+                  key={j}
+                  className={`mention${piece.toLowerCase() === myNickname.toLowerCase() ? ' me' : ''}`}
+                >
+                  @{piece}
+                </span>
+              ) : (
+                piece
+              ),
+            )
+          : part}
+      </Fragment>
     ),
   )
 }

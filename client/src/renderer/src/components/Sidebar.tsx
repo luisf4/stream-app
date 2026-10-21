@@ -47,6 +47,7 @@ export function Sidebar({
   const selectedChannelId = useStore((s) => s.selectedChannelId)
   const voiceStates = useStore((s) => s.voiceStates)
   const unread = useStore((s) => s.unread)
+  const mentioned = useStore((s) => s.mentioned)
   const voiceChannelId = useStore((s) => s.voiceChannelId)
   const voiceStatus = useStore((s) => s.voiceStatus)
   const speaking = useStore((s) => s.speaking)
@@ -94,7 +95,12 @@ export function Sidebar({
               >
                 <HashIcon size={18} />
                 <span className="channel-name">{channel.name}</span>
-                {count > 0 && <span className="badge">{count > 99 ? '99+' : count}</span>}
+                {count > 0 && (
+                  <span className="badge" title={mentioned[channel.id] ? 'Mencionaram você' : undefined}>
+                    {mentioned[channel.id] ? '@' : ''}
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
               </button>
             )
           })}
@@ -130,7 +136,12 @@ export function Sidebar({
                 <SpeakerIcon size={18} />
                 <span className="channel-name">{channel.name}</span>
                 {joining && <span className="spinner" role="status" aria-label="Conectando" />}
-                {count > 0 && <span className="badge">{count > 99 ? '99+' : count}</span>}
+                {count > 0 && (
+                  <span className="badge" title={mentioned[channel.id] ? 'Mencionaram você' : undefined}>
+                    {mentioned[channel.id] ? '@' : ''}
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
               </button>
               {members.map((m, i) => (
                 <div

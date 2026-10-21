@@ -15,6 +15,7 @@ export function logout() {
     messages: {},
     hasMore: {},
     unread: {},
+    mentioned: {},
     voiceStates: [],
     online: [],
     typing: {},

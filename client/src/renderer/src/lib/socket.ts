@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 import { selectChannel, useStore } from '../store'
+import { mentions } from './mentions'
 import { sounds } from './sounds'
 import type { Channel, Message, Session, User, VoiceState } from './types'
 
@@ -46,6 +47,8 @@ export function connectSocket(session: Session, onUnauthorized: () => void) {
     const list = state.messages[message.channelId]
     const mine = message.userId === state.session?.user.id
     const isSelected = state.selectedChannelId === message.channelId
+    const me = state.session?.user.nickname ?? ''
+    const pinged = !mine && !!me && mentions(message.content, me)
     const typing = { ...state.typing[message.channelId] }
     delete typing[message.nickname]
 
@@ -55,10 +58,12 @@ export function connectSocket(session: Session, onUnauthorized: () => void) {
         !mine && !isSelected
           ? { ...state.unread, [message.channelId]: (state.unread[message.channelId] ?? 0) + 1 }
           : state.unread,
+      mentioned:
+        pinged && !isSelected ? { ...state.mentioned, [message.channelId]: true } : state.mentioned,
       typing: { ...state.typing, [message.channelId]: typing },
     })
 
-    if (!mine && (!isSelected || !document.hasFocus())) notify(message)
+    if (!mine && (!isSelected || !document.hasFocus())) notify(message, pinged)
   })
 
   s.on('message:deleted', ({ id, channelId }: { id: number; channelId: string }) => {
@@ -75,14 +80,17 @@ export function connectSocket(session: Session, onUnauthorized: () => void) {
   })
 }
 
-function notify(message: Message) {
+function notify(message: Message, pinged: boolean) {
   const { settings, channels } = useStore.getState()
   window.api.flashFrame()
   if (settings.sounds) sounds.message()
   if (!settings.notifications || document.hasFocus()) return
   const channel = channels.find((c) => c.id === message.channelId)
   const body = message.content || `📎 ${message.attachments.map((a) => a.name).join(', ')}`
-  const n = new Notification(`${message.nickname} em ${channel?.name ?? 'Resenha'}`, {
+  const title = pinged
+    ? `${message.nickname} mencionou você em #${channel?.name ?? 'Resenha'}`
+    : `${message.nickname} em ${channel?.name ?? 'Resenha'}`
+  const n = new Notification(title, {
     body: body.slice(0, 200),
     silent: true,
   })
