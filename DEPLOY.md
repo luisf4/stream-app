@@ -118,12 +118,13 @@ The prompts are in Portuguese:
 
 The installer then:
 
-1. installs Docker, curl and openssl if missing;
+1. installs Docker, curl, openssl and cron if missing;
 2. generates the secrets and writes `deploy/.env` (mode `600`);
 3. checks that the domain resolves to this server's public IP (otherwise the HTTPS certificate can't be issued)
    and asks before going on if it doesn't;
 4. opens the ports in `ufw` if it's active;
-5. builds and starts the containers.
+5. builds and starts the containers;
+6. if the code came from `git clone`, schedules `auto-update.sh` every 10 minutes (pulls `main` and redeploys).
 
 It finishes by printing the address to use, e.g. `Pronto! No app, use o endereço: https://203-0-113-5.sslip.io`
 ("Done! In the app, use this address").
@@ -224,7 +225,8 @@ All commands run inside `deploy/`.
 
 | Task | Command |
 |---|---|
-| Update to the latest code | `git pull && docker compose up -d --build` |
+| Update to the latest code | Automatic: `auto-update.sh` runs every 10 minutes from cron and redeploys when `main` has new commits touching `server/` or `deploy/`. Manually: `bash auto-update.sh` |
+| Auto-update log | `tail -f auto-update.log` |
 | App server logs | `docker compose logs -f app` |
 | LiveKit logs | `docker compose logs -f livekit` |
 | Caddy (HTTPS) logs | `docker compose logs -f caddy` |

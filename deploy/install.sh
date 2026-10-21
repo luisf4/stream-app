@@ -11,8 +11,8 @@ fi
 
 echo "==> Resenha - instalação do servidor"
 
-if ! command -v curl >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
-  apt-get update && apt-get install -y curl openssl
+if ! command -v curl >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1; then
+  apt-get update && apt-get install -y curl openssl cron
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -93,6 +93,13 @@ mkdir -p data
 
 echo "==> Subindo os containers..."
 docker compose up -d --build
+
+# Atualiza sozinho a cada 10 minutos quando chega commit novo na main
+if [ -d ../.git ]; then
+  echo "==> Configurando a atualização automática..."
+  CRON_LINE="*/10 * * * * cd '$(pwd)' && bash auto-update.sh >> auto-update.log 2>&1"
+  { crontab -l 2>/dev/null | grep -v 'auto-update.sh' || true; echo "$CRON_LINE"; } | crontab -
+fi
 
 echo
 echo "Pronto! No app, use o endereço:  https://${DOMAIN}"

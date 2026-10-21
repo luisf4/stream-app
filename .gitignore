@@ -6,5 +6,7 @@ data/
 .env
 deploy/.env
 deploy/data/
+deploy/auto-update.log
+deploy/.auto-update.lock
 # gerado por client/scripts/build-audio-helper.mjs
 client/resources/bin/
