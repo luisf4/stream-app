@@ -1,15 +1,54 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { startMicTest } from '../lib/noise'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { startMicTest, type MicMeter } from '../lib/noise'
 import { logout } from '../lib/session'
-import { isAiNoise, type NoiseIntensity, type NoiseMode } from '../lib/settings'
-import { captureOptions, micSettings, setNoiseMode, switchDevice, updateMicSettings } from '../lib/voice'
+import { micSettings, switchDevice, updateMicSettings } from '../lib/voice'
 import { updateSettings, useStore } from '../store'
 import { LogOutIcon } from './Icons'
 import { Modal } from './Modal'
 
+type Tab = 'voice' | 'shortcuts' | 'app' | 'account'
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'voice', label: 'Voz e vídeo' },
+  { id: 'shortcuts', label: 'Atalhos' },
+  { id: 'app', label: 'Chat e app' },
+  { id: 'account', label: 'Conta' },
+]
+
 export function SettingsModal({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<Tab>('voice')
+
+  return (
+    <Modal title="Configurações" onClose={onClose} className="settings-modal">
+      <div className="settings">
+        <nav className="settings-nav" role="tablist" aria-orientation="vertical">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              className={tab === t.id ? 'active' : ''}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-page" role="tabpanel">
+          {tab === 'voice' && <VoiceTab />}
+          {tab === 'shortcuts' && <ShortcutsTab />}
+          {tab === 'app' && <AppTab />}
+          {tab === 'account' && <AccountTab onClose={onClose} />}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------- abas ----------
+
+function VoiceTab() {
   const settings = useStore((s) => s.settings)
-  const session = useStore((s) => s.session)!
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
 
   useEffect(() => {
@@ -20,23 +59,26 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   }, [])
 
   const byKind = (kind: MediaDeviceKind) => devices.filter((d) => d.kind === kind)
+  const { gate } = settings
 
   return (
-    <Modal title="Configurações" onClose={onClose} wide>
-      <h3 className="settings-section">Voz e vídeo</h3>
-      <div className="settings-grid">
-        <DeviceSelect
-          label="Microfone"
-          devices={byKind('audioinput')}
-          value={settings.inputDeviceId}
-          onChange={(id) => switchDevice('audioinput', id)}
-        />
-        <DeviceSelect
-          label="Saída de áudio"
-          devices={byKind('audiooutput')}
-          value={settings.outputDeviceId}
-          onChange={(id) => switchDevice('audiooutput', id)}
-        />
+    <>
+      <h3>Dispositivos</h3>
+      <div className="settings-card">
+        <div className="settings-grid">
+          <DeviceSelect
+            label="Microfone"
+            devices={byKind('audioinput')}
+            value={settings.inputDeviceId}
+            onChange={(id) => switchDevice('audioinput', id)}
+          />
+          <DeviceSelect
+            label="Saída de áudio"
+            devices={byKind('audiooutput')}
+            value={settings.outputDeviceId}
+            onChange={(id) => switchDevice('audiooutput', id)}
+          />
+        </div>
         <DeviceSelect
           label="Câmera"
           devices={byKind('videoinput')}
@@ -44,162 +86,190 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           onChange={(id) => switchDevice('videoinput', id)}
         />
       </div>
-      <div className="settings-grid">
-        <label className="field">
-          <span>Supressão de ruído</span>
-          <select
-            value={settings.noiseMode}
-            onChange={(e) => setNoiseMode(e.target.value as NoiseMode)}
-          >
-            <option value="ai">IA (RNNoise) — tira teclado, ventilador, barulho de rua</option>
-            <option value="ai2">IA (GTCRN) — modelo mais novo, voz um pouco mais abafada</option>
-            <option value="basic">Padrão — filtro leve do navegador</option>
-            <option value="off">Desligada</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Intensidade da IA</span>
-          <select
-            value={settings.noiseIntensity}
-            disabled={!isAiNoise(settings.noiseMode)}
-            onChange={(e) => updateMicSettings({ noiseIntensity: e.target.value as NoiseIntensity })}
-          >
-            <option value="low">Leve — preserva mais a voz</option>
-            <option value="medium">Média</option>
-            <option value="high">Forte — tira mais ruído, pode cortar sílabas</option>
-          </select>
-        </label>
-      </div>
-      <div className="settings-grid">
-        <label className="field">
-          <span>
-            Volume do microfone: {settings.micGainDb > 0 ? '+' : ''}
-            {settings.micGainDb} dB
-          </span>
-          <input
-            type="range"
-            min={-12}
-            max={24}
-            step={1}
-            value={settings.micGainDb}
-            onChange={(e) => updateMicSettings({ micGainDb: Number(e.target.value) })}
-            onDoubleClick={() => updateMicSettings({ micGainDb: 0 })}
-            title="Duplo clique volta para 0 dB"
-          />
-        </label>
-        <label className="field">
-          <span>Limiar do noise gate: {settings.gate.thresholdDb} dB</span>
-          <input
-            type="range"
-            min={-80}
-            max={-10}
-            step={1}
-            value={settings.gate.thresholdDb}
-            disabled={!settings.gate.enabled}
-            onChange={(e) =>
-              updateMicSettings({ gate: { ...settings.gate, thresholdDb: Number(e.target.value) } })
-            }
-          />
-        </label>
-      </div>
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={settings.gate.enabled}
-          onChange={(e) => updateMicSettings({ gate: { ...settings.gate, enabled: e.target.checked } })}
-        />
-        Noise gate — só transmite quando o som passa do limiar (a marca na barra do teste)
-      </label>
-      <MicTest />
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={settings.echoCancellation}
-          onChange={(e) => updateSettings({ echoCancellation: e.target.checked })}
-        />
-        Cancelamento de eco
-      </label>
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={settings.autoGainControl && !isAiNoise(settings.noiseMode)}
-          disabled={isAiNoise(settings.noiseMode)}
-          onChange={(e) => updateSettings({ autoGainControl: e.target.checked })}
-        />
-        Ajuste automático de volume do microfone
-        {isAiNoise(settings.noiseMode) && ' (desligado com a IA: use o volume do microfone acima)'}
-      </label>
-      <p className="hint">
-        Supressão, volume do microfone e noise gate mudam na hora. Eco e volume automático valem a partir
-        da próxima vez que você entrar num canal.
-      </p>
 
-      <h3 className="settings-section">Atalhos globais (funcionam com o app em segundo plano)</h3>
-      <div className="settings-grid">
+      <h3>Microfone</h3>
+      <div className="settings-card">
+        <SettingRow
+          title="Supressão de ruído"
+          description="Remove teclado, ventilador e barulho de fundo."
+          checked={settings.noiseSuppression}
+          onChange={(noiseSuppression) => updateMicSettings({ noiseSuppression })}
+        />
+        <SettingRow
+          title="Volume automático"
+          description="Deixa sua voz no mesmo volume para todo mundo, falando baixo ou alto."
+          checked={settings.autoGain}
+          onChange={(autoGain) => updateMicSettings({ autoGain })}
+        />
+        <SettingRow
+          title="Noise gate"
+          description="Só transmite quando você fala. Ajuste a sensibilidade com o teste abaixo."
+          checked={gate.enabled}
+          onChange={(enabled) => updateMicSettings({ gate: { ...gate, enabled } })}
+        >
+          {gate.enabled && (
+            <label className="field slider-field">
+              <span>
+                Sensibilidade <b>{gate.thresholdDb} dB</b>
+              </span>
+              <input
+                type="range"
+                min={-80}
+                max={-10}
+                step={1}
+                value={gate.thresholdDb}
+                onChange={(e) => updateMicSettings({ gate: { ...gate, thresholdDb: Number(e.target.value) } })}
+              />
+              <small className="muted">
+                Mais para a esquerda capta voz mais baixa; mais para a direita corta mais barulho.
+              </small>
+            </label>
+          )}
+        </SettingRow>
+        <MicTest />
+      </div>
+    </>
+  )
+}
+
+function ShortcutsTab() {
+  const shortcuts = useStore((s) => s.settings.shortcuts)
+  return (
+    <>
+      <h3>Atalhos globais</h3>
+      <p className="muted settings-intro">Funcionam mesmo com o app em segundo plano.</p>
+      <div className="settings-card">
         <ShortcutInput
           label="Mutar / desmutar"
-          value={settings.shortcuts.mute}
-          onChange={(mute) => updateSettings({ shortcuts: { ...settings.shortcuts, mute } })}
+          value={shortcuts.mute}
+          onChange={(mute) => updateSettings({ shortcuts: { ...shortcuts, mute } })}
         />
         <ShortcutInput
           label="Ensurdecer"
-          value={settings.shortcuts.deafen}
-          onChange={(deafen) => updateSettings({ shortcuts: { ...settings.shortcuts, deafen } })}
+          value={shortcuts.deafen}
+          onChange={(deafen) => updateSettings({ shortcuts: { ...shortcuts, deafen } })}
         />
       </div>
+    </>
+  )
+}
 
-      <h3 className="settings-section">Chat</h3>
-      <label className="checkbox">
-        <input
-          type="checkbox"
+function AppTab() {
+  const settings = useStore((s) => s.settings)
+  return (
+    <>
+      <h3>Chat</h3>
+      <div className="settings-card">
+        <SettingRow
+          title="Otimizar imagens"
+          description="Reduz as imagens antes de enviar, sem diferença visível. GIFs vão como estão."
           checked={settings.optimizeImages}
-          onChange={(e) => updateSettings({ optimizeImages: e.target.checked })}
+          onChange={(optimizeImages) => updateSettings({ optimizeImages })}
         />
-        Otimizar imagens antes de enviar (bem menores, sem diferença visível; GIFs vão como estão)
-      </label>
-
-      <h3 className="settings-section">App</h3>
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={settings.closeToTray}
-          onChange={(e) => updateSettings({ closeToTray: e.target.checked })}
-        />
-        Ao fechar, continuar rodando na bandeja
-      </label>
-      <label className="checkbox">
-        <input
-          type="checkbox"
+        <SettingRow
+          title="Notificações"
+          description="Avisa quando chega mensagem nova com o app em segundo plano."
           checked={settings.notifications}
-          onChange={(e) => updateSettings({ notifications: e.target.checked })}
+          onChange={(notifications) => updateSettings({ notifications })}
         />
-        Notificações de novas mensagens
-      </label>
-      <label className="checkbox">
-        <input
-          type="checkbox"
+        <SettingRow
+          title="Sons"
+          description="Entrar e sair da voz, mutar e mensagens."
           checked={settings.sounds}
-          onChange={(e) => updateSettings({ sounds: e.target.checked })}
+          onChange={(sounds) => updateSettings({ sounds })}
         />
-        Sons (entrar/sair, mutar, mensagens)
-      </label>
-
-      <h3 className="settings-section">Conta</h3>
-      <p className="muted">
-        Conectado em <b>{session.serverUrl}</b> como <b>{session.user.nickname}</b>
-      </p>
-      <div className="modal-actions">
-        <button
-          className="btn danger"
-          onClick={() => {
-            onClose()
-            logout()
-          }}
-        >
-          <LogOutIcon size={16} /> Sair do servidor
-        </button>
       </div>
-    </Modal>
+      <h3>App</h3>
+      <div className="settings-card">
+        <SettingRow
+          title="Continuar na bandeja ao fechar"
+          description="Fechar a janela deixa o app rodando ao lado do relógio."
+          checked={settings.closeToTray}
+          onChange={(closeToTray) => updateSettings({ closeToTray })}
+        />
+      </div>
+    </>
+  )
+}
+
+function AccountTab({ onClose }: { onClose: () => void }) {
+  const session = useStore((s) => s.session)!
+  return (
+    <>
+      <h3>Conta</h3>
+      <div className="settings-card">
+        <dl className="account-info">
+          <dt>Apelido</dt>
+          <dd>{session.user.nickname}</dd>
+          <dt>Servidor</dt>
+          <dd>{session.serverUrl}</dd>
+          <dt>Versão do app</dt>
+          <dd>{__APP_VERSION__}</dd>
+        </dl>
+      </div>
+      <button
+        className="btn danger"
+        onClick={() => {
+          onClose()
+          logout()
+        }}
+      >
+        <LogOutIcon size={16} /> Sair do servidor
+      </button>
+    </>
+  )
+}
+
+// ---------- peças ----------
+
+function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  onChange: (value: boolean) => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={`toggle${checked ? ' on' : ''}`}
+      onClick={() => onChange(!checked)}
+    >
+      <span />
+    </button>
+  )
+}
+
+/** Linha de configuração: título e descrição à esquerda, interruptor à direita. */
+function SettingRow({
+  title,
+  description,
+  checked,
+  onChange,
+  children,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onChange: (value: boolean) => void
+  children?: ReactNode
+}) {
+  return (
+    <div className="setting-row">
+      <div className="setting-row-main">
+        <div>
+          <div className="setting-title">{title}</div>
+          <div className="setting-description">{description}</div>
+        </div>
+        <Toggle checked={checked} onChange={onChange} label={title} />
+      </div>
+      {children}
+    </div>
   )
 }
 
@@ -210,10 +280,9 @@ const meterPct = (db: number) => Math.max(0, Math.min(100, ((db - METER_MIN_DB) 
 function MicTest() {
   const settings = useStore((s) => s.settings)
   const [running, setRunning] = useState(false)
-  const [meter, setMeter] = useState({ db: -100, open: false })
+  const [meter, setMeter] = useState<MicMeter>({ db: -100, open: false, gainDb: 0 })
   const [error, setError] = useState('')
   const testRef = useRef<Awaited<ReturnType<typeof startMicTest>> | null>(null)
-  const capture = captureOptions(settings)
 
   const stop = () => {
     testRef.current?.stop()
@@ -226,13 +295,8 @@ function MicTest() {
     try {
       const current = useStore.getState().settings
       testRef.current = await startMicTest(
-        {
-          deviceId: current.inputDeviceId,
-          mic: micSettings(current),
-          ...captureOptions(current),
-          outputDeviceId: current.outputDeviceId,
-        },
-        (db, open) => setMeter({ db, open }),
+        { deviceId: current.inputDeviceId, mic: micSettings(current), outputDeviceId: current.outputDeviceId },
+        setMeter,
       )
       setRunning(true)
     } catch (err) {
@@ -240,29 +304,28 @@ function MicTest() {
     }
   }
 
-  // troca de microfone ou de opção da captura durante o teste: reabre com a configuração nova
+  // trocou de microfone durante o teste: reabre com o novo
   useEffect(() => {
     if (!testRef.current) return
     stop()
     void start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.inputDeviceId, capture.noiseSuppression, capture.autoGainControl, capture.echoCancellation])
+  }, [settings.inputDeviceId])
 
-  // o resto (IA, intensidade, ganho, gate) muda na hora
+  // supressão, volume automático e gate mudam na hora
   useEffect(() => {
     testRef.current?.update(micSettings(settings))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.noiseMode, settings.noiseIntensity, settings.micGainDb, settings.gate])
+  }, [settings.noiseSuppression, settings.autoGain, settings.gate])
 
   useEffect(() => stop, [])
 
   const gateOn = settings.gate.enabled
   return (
-    <div className="field">
-      <span>Teste de microfone (use fone)</span>
+    <div className="mic-test-box">
       <div className="mic-test">
-        <button type="button" className="btn ghost-outline" onClick={running ? stop : start}>
-          {running ? 'Parar' : 'Testar'}
+        <button type="button" className={`btn ${running ? 'danger' : 'primary'}`} onClick={running ? stop : start}>
+          {running ? 'Parar teste' : 'Testar microfone'}
         </button>
         <div className={`mic-level${gateOn && !meter.open ? ' closed' : ''}`}>
           <div style={{ width: `${meterPct(meter.db)}%` }} />
@@ -271,9 +334,15 @@ function MicTest() {
           )}
         </div>
       </div>
-      {running && gateOn && (
-        <small className="muted">{meter.open ? 'Gate aberto: transmitindo' : 'Gate fechado: em silêncio'}</small>
-      )}
+      <small className="muted">
+        {!running
+          ? 'Use fone: você vai ouvir sua própria voz como os outros ouvem.'
+          : gateOn && !meter.open
+            ? 'Gate fechado: em silêncio'
+            : settings.autoGain
+              ? `Transmitindo · volume automático ${meter.gainDb > 0 ? '+' : ''}${meter.gainDb.toFixed(0)} dB`
+              : 'Transmitindo'}
+      </small>
       {error && <small className="error">{error}</small>}
     </div>
   )

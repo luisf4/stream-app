@@ -10,9 +10,9 @@ import {
   type RemoteParticipant,
 } from 'livekit-client'
 import { showToast, updateSettings, useStore } from '../store'
-import { MicProcessor, noiseAudioContext, type MicSettings } from './noise'
+import { captureOptions, MicProcessor, noiseAudioContext, type MicSettings } from './noise'
 import { startScreenAudio, stopScreenAudio } from './screenAudio'
-import { isAiNoise, type NoiseMode, type Settings } from './settings'
+import type { Settings } from './settings'
 
 // No modo de desenvolvimento, mostra no console cada passo da conexão de voz.
 if (import.meta.env.DEV) setLogLevel('debug')
@@ -297,7 +297,7 @@ export async function joinVoice(channelId: string) {
       dynacast: true,
       audioCaptureDefaults: {
         deviceId: settings.inputDeviceId || undefined,
-        ...captureOptions(settings),
+        ...captureOptions,
       },
       videoCaptureDefaults: {
         deviceId: settings.videoDeviceId || undefined,
@@ -385,25 +385,12 @@ function micTrack(): LocalAudioTrack | undefined {
     | undefined
 }
 
-/**
- * Opções da captura do microfone. No modo "básico" o filtro do WebRTC faz a supressão; com IA ele fica
- * desligado (junto só piora a voz), e o volume automático também: nas pausas ele subia o ruído de
- * fundo e a IA cortava mais forte justo no começo e no fim das frases. Nesse caso vale o ganho manual.
- */
-export function captureOptions(settings: Settings) {
-  return {
-    noiseSuppression: settings.noiseMode === 'basic',
-    echoCancellation: settings.echoCancellation,
-    autoGainControl: settings.autoGainControl && !isAiNoise(settings.noiseMode),
-  }
-}
-
 export function micSettings(settings: Settings): MicSettings {
-  const { noiseMode, noiseIntensity, micGainDb, gate } = settings
-  return { noiseMode, noiseIntensity, micGainDb, gate }
+  const { noiseSuppression, autoGain, gate } = settings
+  return { noiseSuppression, autoGain, gate }
 }
 
-/** Ganho, supressão por IA e noise gate no microfone da call, conforme a configuração. */
+/** Supressão de ruído, noise gate e volume automático no microfone da call. */
 async function applyMicProcessing() {
   const track = micTrack()
   if (!track) return
@@ -421,28 +408,10 @@ async function applyMicProcessing() {
   }
 }
 
-/** Muda ganho, intensidade da IA ou noise gate na hora, mesmo no meio de uma chamada. */
-export function updateMicSettings(patch: Partial<Pick<Settings, 'micGainDb' | 'noiseIntensity' | 'gate'>>) {
+/** Liga/desliga supressão, volume automático ou noise gate na hora, mesmo no meio de uma chamada. */
+export function updateMicSettings(patch: Partial<MicSettings>) {
   updateSettings(patch)
   void applyMicProcessing()
-}
-
-/** Troca o modo de supressão de ruído na hora, mesmo no meio de uma chamada. */
-export async function setNoiseMode(mode: NoiseMode) {
-  const before = captureOptions(get().settings)
-  updateSettings({ noiseMode: mode })
-  const after = captureOptions(get().settings)
-  const track = micTrack()
-  if (!track) return
-  // filtro do WebRTC e volume automático são configurações da captura: precisa reabrir o microfone
-  if (before.noiseSuppression !== after.noiseSuppression || before.autoGainControl !== after.autoGainControl) {
-    try {
-      await track.restartTrack({ deviceId: get().settings.inputDeviceId || undefined, ...after })
-    } catch (err) {
-      showToast(`Não foi possível reabrir o microfone: ${errorText(err)}`)
-    }
-  }
-  await applyMicProcessing()
 }
 
 export async function toggleMute() {

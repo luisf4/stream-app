@@ -1,12 +1,3 @@
-/**
- * off = nada; basic = filtro do próprio WebRTC; ai = RNNoise (rede neural, bem mais forte);
- * ai2 = GTCRN (rede neural mais nova, corta menos a voz, mas trabalha em 16 kHz)
- */
-export type NoiseMode = 'off' | 'basic' | 'ai' | 'ai2'
-
-/** quanto a IA pode abaixar o ruído: leve corta menos a voz, forte tira mais ruído */
-export type NoiseIntensity = 'low' | 'medium' | 'high'
-
 export interface GateSettings {
   enabled: boolean
   /** abaixo disso (em dB) o microfone fecha */
@@ -17,15 +8,13 @@ export interface Settings {
   inputDeviceId: string
   outputDeviceId: string
   videoDeviceId: string
-  noiseMode: NoiseMode
-  noiseIntensity: NoiseIntensity
-  /** ganho manual do microfone, em dB */
-  micGainDb: number
+  /** supressão de ruído por IA (RNNoise) */
+  noiseSuppression: boolean
+  /** iguala o volume da voz (ganho automático só enquanto a pessoa fala) */
+  autoGain: boolean
   gate: GateSettings
   /** reduz e converte imagens para WebP antes de enviar no chat */
   optimizeImages: boolean
-  echoCancellation: boolean
-  autoGainControl: boolean
   shortcuts: { mute: string; deafen: string }
   closeToTray: boolean
   notifications: boolean
@@ -41,13 +30,10 @@ export const defaultSettings: Settings = {
   inputDeviceId: 'default',
   outputDeviceId: 'default',
   videoDeviceId: '',
-  noiseMode: 'ai',
-  noiseIntensity: 'medium',
-  micGainDb: 0,
+  noiseSuppression: true,
+  autoGain: true,
   gate: { enabled: false, thresholdDb: -50 },
   optimizeImages: true,
-  echoCancellation: true,
-  autoGainControl: true,
   shortcuts: { mute: 'Ctrl+Shift+M', deafen: 'Ctrl+Shift+D' },
   closeToTray: true,
   notifications: true,
@@ -59,6 +45,13 @@ export const defaultSettings: Settings = {
 export function loadSettings(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}')
+    // versões antigas tinham 4 modos de supressão (noiseMode); qualquer um ligado vira "ligada"
+    if (saved.noiseSuppression === undefined && typeof saved.noiseMode === 'string') {
+      saved.noiseSuppression = saved.noiseMode !== 'off'
+    }
+    for (const old of ['noiseMode', 'noiseIntensity', 'micGainDb', 'echoCancellation', 'autoGainControl']) {
+      delete saved[old]
+    }
     return {
       ...defaultSettings,
       ...saved,
@@ -69,8 +62,6 @@ export function loadSettings(): Settings {
     return defaultSettings
   }
 }
-
-export const isAiNoise = (mode: NoiseMode) => mode === 'ai' || mode === 'ai2'
 
 export function saveSettings(settings: Settings) {
   try {

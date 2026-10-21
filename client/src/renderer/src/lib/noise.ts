@@ -1,53 +1,45 @@
-import { GtcrnWorkletNode, loadGtcrn, loadRnnoise, RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor'
-import gtcrnWasm from '@sapphi-red/web-noise-suppressor/gtcrn.wasm?inline'
-import gtcrnWorkletSource from '@sapphi-red/web-noise-suppressor/gtcrnWorklet.js?raw'
+import { loadRnnoise, RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor'
 // Embutidos no bundle: no app instalado a página vem de file://, onde fetch() de arquivos é bloqueado.
 // Só a versão SIMD: o Chromium do Electron sempre suporta, e economiza ~200 KB.
 import rnnoiseSimdWasm from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?inline'
 import rnnoiseWorkletSource from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?raw'
 import type { AudioProcessorOptions, Track, TrackProcessor } from 'livekit-client'
-import type { GateSettings, NoiseIntensity, NoiseMode } from './settings'
+import type { GateSettings } from './settings'
 
 /**
  * Processamento do microfone, usado na call (como "processador" do LiveKit) e no teste de microfone:
  *
- *   mic → ganho → supressão de ruído (IA) → noise gate → saída
+ *   mic → supressão de ruído (RNNoise) → noise gate + volume automático → limitador → saída
  *
- * A IA sozinha zera tudo que acha que é ruído e cortava o começo e o fim das frases. Por isso uma
- * pequena parte do som original volta junto (conforme a intensidade): o ruído continua baixo, mas as
- * bordas das palavras não somem.
+ * A IA sozinha zera tudo que acha que é ruído e cortava o começo e o fim das frases. Por isso um
+ * pouco do som original (−25 dB) volta junto: o ruído continua baixo, mas as palavras não perdem as
+ * bordas.
  */
 
 export interface MicSettings {
-  noiseMode: NoiseMode
-  noiseIntensity: NoiseIntensity
-  micGainDb: number
+  noiseSuppression: boolean
+  autoGain: boolean
   gate: GateSettings
+}
+
+/** Opções da captura do microfone: o RNNoise e o volume automático daqui fazem o resto. */
+export const captureOptions = {
+  echoCancellation: true,
+  // o filtro do navegador junto com a IA só piora a voz
+  noiseSuppression: false,
+  // o do navegador mexe no volume do microfone do Windows e aumentava o ruído nas pausas
+  autoGainControl: false,
 }
 
 const RATE = 48_000
 const dbToGain = (db: number) => 10 ** (db / 20)
-
-/** quanto do som original volta junto com o da IA (= o máximo que a IA consegue abaixar o ruído) */
-const DRY_LEVEL: Record<NoiseIntensity, number> = {
-  low: dbToGain(-15),
-  medium: dbToGain(-25),
-  high: dbToGain(-40),
-}
-
-/**
- * Atraso de cada IA, para alinhar o som original com o processado (senão vira efeito "flanger").
- * Medido por correlação entre entrada e saída dos worklets (OfflineAudioContext, 48 kHz).
- */
-const DENOISER_LATENCY: Record<'ai' | 'ai2', number> = {
-  ai: 992 / RATE,
-  ai2: 1530 / RATE,
-}
+const DRY_LEVEL = dbToGain(-25)
+/** atraso do RNNoise, para alinhar o som original com o processado (senão vira efeito "flanger") */
+const RNNOISE_LATENCY = 992 / RATE
 
 let audioContext: AudioContext | null = null
 const modulesReady = new WeakMap<BaseAudioContext, Promise<void>>()
 let rnnoiseBinary: Promise<ArrayBuffer> | null = null
-let gtcrnBinary: Promise<ArrayBuffer> | null = null
 
 /** O RNNoise trabalha a 48 kHz. */
 export function noiseAudioContext(): AudioContext {
@@ -67,27 +59,29 @@ async function addModule(ctx: BaseAudioContext, source: string) {
 function prepare(ctx: BaseAudioContext): Promise<void> {
   let ready = modulesReady.get(ctx)
   if (!ready) {
-    ready = Promise.all([
-      addModule(ctx, rnnoiseWorkletSource),
-      addModule(ctx, gtcrnWorkletSource),
-      addModule(ctx, gateWorkletSource),
-    ]).then(() => undefined)
+    ready = Promise.all([addModule(ctx, rnnoiseWorkletSource), addModule(ctx, voiceWorkletSource)]).then(
+      () => undefined,
+    )
     ready.catch(() => modulesReady.delete(ctx))
     modulesReady.set(ctx, ready)
   }
   return ready
 }
 
-// ---------- noise gate ----------
-// O gate do pacote liga/desliga de uma vez e cortaria as palavras. Este:
+// ---------- noise gate + volume automático ----------
+// Detector de voz: o nível do bloco passa do limiar (o do gate, ou −55 dB com o gate desligado).
 // - olha 10 ms à frente (o áudio sai 10 ms atrasado), então abre antes da palavra começar;
 // - abre em 2 ms, segura 300 ms depois da fala e fecha suave em ~150 ms;
-// - fecha 6 dB abaixo do limiar de abertura (não fica abrindo/fechando na borda);
-// - fechado abaixa 40 dB em vez de mutar de vez.
-// Também mede o nível (antes do gate) para a barrinha das configurações.
-const gateWorkletSource = `
+// - fecha 6 dB abaixo do limiar de abertura (não fica abrindo/fechando na borda).
+// Gate: fechado abaixa 40 dB em vez de mutar de vez.
+// Volume automático: só aprende enquanto a pessoa fala (e bem acima do ruído de fundo), então nunca
+// aumenta o ruído nas pausas. Leva a média da fala para −20 dB, com ganho entre −10 e +20 dB; sobe
+// devagar (6 dB/s) e desce rápido (30 dB/s), e o ganho muda amostra a amostra, sem degraus.
+// Também mede o nível (antes do ganho) para a barrinha das configurações.
+export const voiceWorkletSource = `
 const dbToGain = (db) => 10 ** (db / 20)
-class ResenhaGate extends AudioWorkletProcessor {
+const toDb = (gain) => 20 * Math.log10(gain + 1e-9)
+class ResenhaVoice extends AudioWorkletProcessor {
   constructor(options) {
     super()
     this.lookahead = Math.round(sampleRate * 0.01)
@@ -99,7 +93,17 @@ class ResenhaGate extends AudioWorkletProcessor {
     this.holdSamples = Math.round(sampleRate * 0.3)
     this.hold = 0
     this.isOpen = false
-    this.gain = 1
+    this.gateGain = 1
+    // volume automático
+    this.targetDb = -20
+    this.minDb = -10
+    this.maxDb = 20
+    this.upDbPerSec = 6
+    this.downDbPerSec = 30
+    this.speechPower = dbToGain(this.targetDb) ** 2
+    this.gainDb = 0
+    this.agcGain = 1
+    this.noiseFloor = dbToGain(-60)
     this.meterEvery = Math.round(sampleRate * 0.05)
     this.meterCount = 0
     this.meterPeak = 0
@@ -107,10 +111,12 @@ class ResenhaGate extends AudioWorkletProcessor {
     this.set(options.processorOptions)
     this.port.onmessage = (e) => this.set(e.data)
   }
-  set({ enabled, thresholdDb }) {
-    this.enabled = enabled
-    this.openLevel = dbToGain(thresholdDb)
-    this.closeLevel = dbToGain(thresholdDb - 6)
+  set({ gate, autoGain }) {
+    this.gateEnabled = gate.enabled
+    const threshold = gate.enabled ? gate.thresholdDb : -55
+    this.openLevel = dbToGain(threshold)
+    this.closeLevel = dbToGain(threshold - 6)
+    this.autoGain = autoGain
   }
   process(inputs, outputs) {
     const input = inputs[0][0]
@@ -119,34 +125,57 @@ class ResenhaGate extends AudioWorkletProcessor {
       output.fill(0)
       return true
     }
+    const n = input.length
+    const blockSec = n / sampleRate
     let sum = 0
-    for (let i = 0; i < input.length; i++) sum += input[i] * input[i]
-    const level = Math.sqrt(sum / input.length)
+    for (let i = 0; i < n; i++) sum += input[i] * input[i]
+    const power = sum / n
+    const level = Math.sqrt(power)
 
-    if (level > this.openLevel || (this.isOpen && level > this.closeLevel)) {
+    const speaking = level > this.openLevel
+    if (speaking || (this.isOpen && level > this.closeLevel)) {
       this.isOpen = true
       this.hold = this.holdSamples
     } else if (this.hold > 0) {
-      this.hold -= input.length
+      this.hold -= n
     } else {
       this.isOpen = false
     }
 
-    const target = !this.enabled || this.isOpen ? 1 : this.floor
-    for (let i = 0; i < input.length; i++) {
+    // ruído de fundo: segue o mínimo rápido e sobe devagar (3 dB/s)
+    this.noiseFloor = level < this.noiseFloor ? level : this.noiseFloor * dbToGain(3 * blockSec)
+
+    let targetGainDb = 0
+    if (this.autoGain) {
+      if (speaking && level > this.noiseFloor * dbToGain(15)) {
+        const alpha = 1 - Math.exp(-blockSec / 0.3)
+        this.speechPower += alpha * (power - this.speechPower)
+      }
+      const wanted = this.targetDb - 10 * Math.log10(this.speechPower + 1e-12)
+      targetGainDb = Math.min(this.maxDb, Math.max(this.minDb, wanted))
+    }
+    const step = (targetGainDb > this.gainDb ? this.upDbPerSec : this.downDbPerSec) * blockSec
+    this.gainDb += Math.max(-step, Math.min(step, targetGainDb - this.gainDb))
+    const fromGain = this.agcGain
+    const toGain = dbToGain(this.gainDb)
+    this.agcGain = toGain
+
+    const gateTarget = !this.gateEnabled || this.isOpen ? 1 : this.floor
+    for (let i = 0; i < n; i++) {
       const delayed = this.delay[this.delayIndex]
       this.delay[this.delayIndex] = input[i]
       this.delayIndex = (this.delayIndex + 1) % this.lookahead
-      if (this.gain < target) this.gain = Math.min(target, this.gain + this.attackStep)
-      else if (this.gain > target) this.gain = Math.max(target, this.gain * this.releaseCoef)
-      output[i] = (this.enabled ? delayed : input[i]) * this.gain
+      if (this.gateGain < gateTarget) this.gateGain = Math.min(gateTarget, this.gateGain + this.attackStep)
+      else if (this.gateGain > gateTarget) this.gateGain = Math.max(gateTarget, this.gateGain * this.releaseCoef)
+      const agc = fromGain + ((toGain - fromGain) * (i + 1)) / n
+      output[i] = delayed * this.gateGain * agc
     }
 
     this.meterPeak = Math.max(this.meterPeak, level)
-    this.meterOpen = this.meterOpen || !this.enabled || this.isOpen
-    this.meterCount += input.length
+    this.meterOpen = this.meterOpen || !this.gateEnabled || this.isOpen
+    this.meterCount += n
     if (this.meterCount >= this.meterEvery) {
-      this.port.postMessage({ db: 20 * Math.log10(this.meterPeak + 1e-9), open: this.meterOpen })
+      this.port.postMessage({ db: toDb(this.meterPeak), open: this.meterOpen, gainDb: this.gainDb })
       this.meterCount = 0
       this.meterPeak = 0
       this.meterOpen = false
@@ -154,7 +183,7 @@ class ResenhaGate extends AudioWorkletProcessor {
     return true
   }
 }
-registerProcessor('resenha-gate', ResenhaGate)
+registerProcessor('resenha-voice', ResenhaVoice)
 `
 
 // ---------- processador ----------
@@ -168,11 +197,20 @@ function mono<T extends AudioNode>(node: T): T {
   return node
 }
 
+export interface MicMeter {
+  /** nível do microfone em dB (depois da supressão, antes do volume automático) */
+  db: number
+  /** gate aberto (ou desligado) */
+  open: boolean
+  /** ganho atual do volume automático, em dB */
+  gainDb: number
+}
+
 export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProcessorOptions> {
   name = 'mic'
   processedTrack?: MediaStreamTrack
-  /** nível do microfone em dB (depois do ganho e da IA) e se o gate está aberto, ~20× por segundo */
-  onMeter?: (db: number, open: boolean) => void
+  /** ~20× por segundo */
+  onMeter?: (meter: MicMeter) => void
 
   private ctx?: AudioContext
   private source?: MediaStreamAudioSourceNode
@@ -180,10 +218,10 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   private dryDelay?: DelayNode
   private dry?: GainNode
   private mix?: GainNode
-  private gate?: AudioWorkletNode
+  private voice?: AudioWorkletNode
+  private limiter?: DynamicsCompressorNode
   private destination?: MediaStreamAudioDestinationNode
   private denoiser?: Denoiser
-  private denoiserMode: NoiseMode = 'off'
 
   constructor(private settings: MicSettings) {}
 
@@ -197,21 +235,27 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     this.dryDelay = mono(ctx.createDelay(0.1))
     this.dry = mono(ctx.createGain())
     this.mix = mono(ctx.createGain())
-    this.gate = mono(
-      new AudioWorkletNode(ctx, 'resenha-gate', {
+    this.voice = mono(
+      new AudioWorkletNode(ctx, 'resenha-voice', {
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
-        processorOptions: this.settings.gate,
+        processorOptions: this.workletOptions(this.settings),
       }),
     )
-    this.gate.port.onmessage = (e: MessageEvent<{ db: number; open: boolean }>) =>
-      this.onMeter?.(e.data.db, e.data.open)
+    this.voice.port.onmessage = (e: MessageEvent<MicMeter>) => this.onMeter?.(e.data)
+    // só segura picos (grito, risada) para não estourar; o volume normal fica com o automático
+    this.limiter = mono(ctx.createDynamicsCompressor())
+    this.limiter.threshold.value = -6
+    this.limiter.knee.value = 0
+    this.limiter.ratio.value = 20
+    this.limiter.attack.value = 0.003
+    this.limiter.release.value = 0.1
     this.destination = ctx.createMediaStreamDestination()
 
     this.source.connect(this.input)
     this.input.connect(this.dryDelay).connect(this.dry).connect(this.mix)
-    this.mix.connect(this.gate).connect(this.destination)
+    this.mix.connect(this.voice).connect(this.limiter).connect(this.destination)
     this.processedTrack = this.destination.stream.getAudioTracks()[0]
     await this.update(this.settings)
   }
@@ -220,34 +264,24 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   async update(settings: MicSettings) {
     this.settings = settings
     const ctx = this.ctx
-    if (!ctx || !this.input || !this.dry || !this.dryDelay || !this.mix || !this.gate) return
-    const now = ctx.currentTime
-    this.input.gain.setTargetAtTime(dbToGain(settings.micGainDb), now, 0.02)
-    this.gate.port.postMessage(settings.gate)
+    if (!ctx || !this.input || !this.dry || !this.dryDelay || !this.mix || !this.voice) return
+    this.voice.port.postMessage(this.workletOptions(settings))
 
-    const mode = settings.noiseMode === 'ai' || settings.noiseMode === 'ai2' ? settings.noiseMode : 'off'
-    if (mode !== this.denoiserMode) {
-      this.removeDenoiser()
-      if (mode !== 'off') {
-        const node = mono(
-          mode === 'ai'
-            ? new RnnoiseWorkletNode(ctx, { wasmBinary: await loadRnnoiseBinary(), maxChannels: 1 })
-            : new GtcrnWorkletNode(ctx, { wasmBinary: await loadGtcrnBinary(), maxChannels: 1 }),
-        )
-        // pode ter sido desmontado ou trocado enquanto o wasm carregava
-        if (this.ctx !== ctx || this.settings !== settings) {
-          node.destroy()
-          return
-        }
-        this.input.connect(node).connect(this.mix)
-        this.denoiser = node
-        this.dryDelay.delayTime.value = DENOISER_LATENCY[mode]
-      } else {
-        this.dryDelay.delayTime.value = 0
+    if (settings.noiseSuppression && !this.denoiser) {
+      const node = mono(new RnnoiseWorkletNode(ctx, { wasmBinary: await loadRnnoiseBinary(), maxChannels: 1 }))
+      // pode ter sido desmontado ou trocado enquanto o wasm carregava
+      if (this.ctx !== ctx || this.settings !== settings) {
+        node.destroy()
+        return
       }
-      this.denoiserMode = mode
+      this.input.connect(node).connect(this.mix)
+      this.denoiser = node
+      this.dryDelay.delayTime.value = RNNOISE_LATENCY
+    } else if (!settings.noiseSuppression && this.denoiser) {
+      this.removeDenoiser()
+      this.dryDelay.delayTime.value = 0
     }
-    this.dry.gain.setTargetAtTime(mode === 'off' ? 1 : DRY_LEVEL[settings.noiseIntensity], now, 0.02)
+    this.dry.gain.setTargetAtTime(this.denoiser ? DRY_LEVEL : 1, ctx.currentTime, 0.02)
   }
 
   async restart(opts: AudioProcessorOptions) {
@@ -259,20 +293,25 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     this.teardown()
   }
 
+  private workletOptions({ gate, autoGain }: MicSettings) {
+    return { gate, autoGain }
+  }
+
   private removeDenoiser() {
     this.denoiser?.disconnect()
     this.denoiser?.destroy()
     this.denoiser = undefined
-    this.denoiserMode = 'off'
   }
 
   private teardown(): void {
     this.removeDenoiser()
-    for (const node of [this.source, this.input, this.dryDelay, this.dry, this.mix, this.gate]) node?.disconnect()
-    if (this.gate) this.gate.port.onmessage = null
+    for (const node of [this.source, this.input, this.dryDelay, this.dry, this.mix, this.voice, this.limiter]) {
+      node?.disconnect()
+    }
+    if (this.voice) this.voice.port.onmessage = null
     this.processedTrack?.stop()
-    this.ctx = this.source = this.input = this.dryDelay = this.dry = this.mix = this.gate = undefined
-    this.destination = this.processedTrack = undefined
+    this.ctx = this.source = this.input = this.dryDelay = this.dry = this.mix = undefined
+    this.voice = this.limiter = this.destination = this.processedTrack = undefined
   }
 }
 
@@ -281,31 +320,18 @@ function loadRnnoiseBinary() {
   return rnnoiseBinary
 }
 
-function loadGtcrnBinary() {
-  gtcrnBinary ??= loadGtcrn({ url: gtcrnWasm })
-  return gtcrnBinary
-}
-
 /**
  * Teste de microfone: toca de volta no fone o que o microfone capta, com o mesmo processamento da
- * call, e informa o nível em dB e se o gate está aberto. Retorna como atualizar e parar o teste.
+ * call, e informa o nível. Retorna como atualizar e parar o teste.
  */
 export async function startMicTest(
-  options: {
-    deviceId: string
-    mic: MicSettings
-    echoCancellation: boolean
-    autoGainControl: boolean
-    outputDeviceId: string
-  },
-  onMeter: (db: number, open: boolean) => void,
+  options: { deviceId: string; mic: MicSettings; outputDeviceId: string },
+  onMeter: (meter: MicMeter) => void,
 ): Promise<{ update: (mic: MicSettings) => void; stop: () => void }> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       deviceId: options.deviceId && options.deviceId !== 'default' ? { exact: options.deviceId } : undefined,
-      noiseSuppression: options.mic.noiseMode === 'basic',
-      echoCancellation: options.echoCancellation,
-      autoGainControl: options.autoGainControl,
+      ...captureOptions,
     },
   })
   const [input] = stream.getAudioTracks()
@@ -333,7 +359,7 @@ export async function startMicTest(
       source.disconnect()
       void processor.destroy()
       input.stop()
-      onMeter(-100, false)
+      onMeter({ db: -100, open: false, gainDb: 0 })
     },
   }
 }
