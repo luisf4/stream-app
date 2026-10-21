@@ -29,7 +29,9 @@ the whole backend runs on a single small VPS with Docker Compose, with self-host
 **Desktop app**
 - Electron app with a custom screen/window picker, system tray, sounds and notifications
 - The server address and password are baked in at build time, so friends only type a nickname
-- One-click NSIS installer
+- One-click NSIS installer, installed once: **Windows builds update themselves** (every push to `main` touching
+  `client/` is built by GitHub Actions and shipped to the server; apps download it in the background and install it
+  when no call is running)
 
 **Self-hosting**
 - One script installs everything with Docker Compose on a VPS, with automatic HTTPS (Caddy + Let's Encrypt)

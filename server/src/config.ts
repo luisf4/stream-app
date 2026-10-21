@@ -40,3 +40,7 @@ export const config = {
 
 export const uploadDir = join(config.dataDir, 'uploads')
 mkdirSync(uploadDir, { recursive: true })
+
+// Instaladores do app para a atualização automática (enviados pelo GitHub Actions)
+export const updateDir = join(config.dataDir, 'updates')
+mkdirSync(updateDir, { recursive: true })

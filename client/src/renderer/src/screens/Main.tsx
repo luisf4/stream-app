@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChatPanel } from '../components/ChatPanel'
-import { ChatIcon, SpeakerIcon } from '../components/Icons'
+import { ChatIcon, CloseIcon, SpeakerIcon } from '../components/Icons'
 import { ScreenPicker } from '../components/ScreenPicker'
 import { SettingsModal } from '../components/SettingsModal'
 import { Sidebar } from '../components/Sidebar'
@@ -21,6 +21,8 @@ export function Main() {
   const closeToTray = useStore((s) => s.settings.closeToTray)
   const chatOpen = useStore((s) => s.settings.chatOpen)
   const toast = useStore((s) => s.toast)
+  const voiceChannelId = useStore((s) => s.voiceChannelId)
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [picker, setPicker] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -66,6 +68,10 @@ export function Main() {
 
   useEffect(() => window.api.setCloseToTray(closeToTray), [closeToTray])
 
+  // atualização automática: não instala no meio de uma call
+  useEffect(() => window.api.setInVoice(!!voiceChannelId), [voiceChannelId])
+  useEffect(() => window.api.onUpdateReady(setUpdateVersion), [])
+
   return (
     <div className="app">
       <Sidebar onOpenSettings={() => setSettingsOpen(true)} onShareScreen={() => setPicker(true)} />
@@ -101,6 +107,20 @@ export function Main() {
       {picker && <ScreenPicker onClose={() => setPicker(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {toast && <div className="toast">{toast}</div>}
+      {updateVersion && (
+        <div className="update-banner">
+          <span>
+            Versão {updateVersion} baixada. Instala sozinha quando você fechar a janela
+            {voiceChannelId ? ', depois de sair da voz' : ''}.
+          </span>
+          <button className="btn primary" onClick={() => window.api.installUpdate()}>
+            Reiniciar agora
+          </button>
+          <button className="icon-btn" title="Depois" onClick={() => setUpdateVersion(null)}>
+            <CloseIcon size={16} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

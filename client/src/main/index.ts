@@ -14,6 +14,7 @@ import {
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { consumeStartHidden, installIfIdle, setupUpdater } from './updater'
 
 // "--profile=2" permite abrir uma segunda instância (com outro login) para testar.
 const profile =
@@ -67,7 +68,10 @@ function createWindow() {
     },
   })
 
-  win.once('ready-to-show', () => win?.show())
+  const startHidden = consumeStartHidden()
+  win.once('ready-to-show', () => {
+    if (!startHidden) win?.show()
+  })
 
   // Links abrem no navegador padrão, nunca dentro do app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -85,6 +89,7 @@ function createWindow() {
     if (!quitting && closeToTray) {
       event.preventDefault()
       win?.hide()
+      installIfIdle(win)
     }
   })
   win.on('focus', () => win?.flashFrame(false))
@@ -279,6 +284,7 @@ if (!app.requestSingleInstanceLock()) {
     setupDownloads()
     createWindow()
     createTray()
+    setupUpdater(() => win, !!profile)
   })
   app.on('before-quit', () => {
     quitting = true

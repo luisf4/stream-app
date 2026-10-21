@@ -202,6 +202,37 @@ password and nickname, which is handy for testing against `localhost:3000`.
 
 ---
 
+## 7. Automatic app updates (Windows)
+
+Friends install the app **once**. After that, every push to `main` that touches `client/` publishes a new version:
+
+1. the **Release Windows** workflow (`.github/workflows/release-win.yml`) builds the installer on a GitHub Windows
+   runner, numbering it `1.1.<run number>`;
+2. it sends the installer, its `.blockmap` and `latest.yml` to the VPS over SSH, into `deploy/data/updates/`;
+3. the app checks `https://DOMAIN/api/updates/` on startup and every hour, downloads the new version in the
+   background (only the changed blocks, when possible) and installs it silently when the window is closed to the
+   tray and no call is running, or when the app quits. A banner also offers **Reiniciar agora** ("restart now").
+
+The update files are only served to requests carrying the server password, which the app already has. They aren't
+published as GitHub releases or artifacts because the repository is public and the installer contains the password.
+
+Setup (once):
+
+1. Create a key just for the workflow: `ssh-keygen -t ed25519 -f resenha_ci -N ""`.
+2. On the VPS, allow it to run **only** the upload script (one line in `/root/.ssh/authorized_keys`):
+
+   ```
+   restrict,command="/root/resenha/deploy/receive-update.sh" ssh-ed25519 AAAA... resenha-ci
+   ```
+
+3. In the repository, add the secrets `VITE_SERVER_URL`, `VITE_SERVER_PASSWORD`, `VPS_HOST`, `VPS_SSH_KEY` (the
+   private key) and `VPS_KNOWN_HOSTS` (output of `ssh-keyscan -t ed25519 VPS_IP`).
+
+macOS builds don't update themselves: macOS only accepts an app swap when the app is signed with a paid Apple
+Developer certificate.
+
+---
+
 ## Bandwidth and stream quality
 
 The SFU forwards one copy of each stream **per viewer**, from the server's upload:

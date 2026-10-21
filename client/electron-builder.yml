@@ -13,6 +13,11 @@ asarUnpack:
 electronLanguages:
   - pt-BR
   - en-US
+# Atualização automática (Windows): gera latest.yml + .blockmap ao lado do instalador.
+# O endereço real vem do VITE_SERVER_URL (src/main/updater.ts); este é só para o builder.
+publish:
+  provider: generic
+  url: https://localhost/api/updates
 win:
   target: nsis
   icon: resources/icon.png

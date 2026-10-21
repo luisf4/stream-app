@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
+import { createWriteStream, existsSync } from 'node:fs'
 import { stat, unlink } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { FastifyInstance } from 'fastify'
 import { AccessToken } from 'livekit-server-sdk'
 import { authenticate, checkPassword, issueToken, tooManyAttempts } from './auth.js'
-import { config, uploadDir } from './config.js'
+import { config, updateDir, uploadDir } from './config.js'
 import { getChannel, getMessages, insertAttachment } from './db.js'
 
 export function registerRoutes(app: FastifyInstance) {
@@ -66,6 +66,24 @@ export function registerRoutes(app: FastifyInstance) {
     }
   })
 
+  // Atualização automática do app (electron-updater). O repositório é público e a senha vai
+  // embutida no instalador, então só entrega os arquivos para quem manda a senha do servidor.
+  app.get('/api/updates/:file', async (req, reply) => {
+    if (!checkPassword(headerPassword(req.headers['x-resenha-password']))) {
+      if (tooManyAttempts(req.ip)) {
+        return reply.code(429).send({ error: 'Muitas tentativas, espere um minuto.' })
+      }
+      return reply.code(401).send({ error: 'Senha do servidor incorreta.' })
+    }
+    const { file } = req.params as { file: string }
+    if (!UPDATE_FILE.test(file) || !existsSync(join(updateDir, file))) {
+      return reply.code(404).send({ error: 'Arquivo não encontrado' })
+    }
+    // latest.yml muda a cada versão; os instaladores têm a versão no nome
+    reply.header('Cache-Control', file.endsWith('.yml') ? 'no-cache' : 'private, max-age=31536000')
+    return reply.sendFile(file, updateDir, { cacheControl: false })
+  })
+
   app.post('/api/upload', async (req, reply) => {
     const user = authenticate(req)
     const file = await req.file()
@@ -97,6 +115,18 @@ export function registerRoutes(app: FastifyInstance) {
       userId: user.id,
     })
   })
+}
+
+const UPDATE_FILE = /^[\w.-]+\.(yml|exe|blockmap)$/
+
+/** O app manda a senha com encodeURIComponent (cabeçalho HTTP só aceita ASCII). */
+function headerPassword(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return ''
+  }
 }
 
 // Só estes tipos abrem direto no app; o resto é servido como download.

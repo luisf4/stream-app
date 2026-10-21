@@ -13,8 +13,8 @@
     "build": "npm run helper && electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "dist": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac --arm64"
+    "dist": "npm run build && electron-builder --win --x64 --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --arm64 --publish never"
   },
   "devDependencies": {
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
@@ -24,6 +24,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^38.0.0",
     "electron-builder": "^26.0.0",
+    "electron-updater": "^6.8.9",
     "electron-vite": "^4.0.0",
     "livekit-client": "^2.15.0",
     "react": "^19.1.0",

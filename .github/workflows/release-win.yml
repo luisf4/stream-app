@@ -1,0 +1,75 @@
+# Publica uma versão nova do app para Windows a cada push na main que mexe em client/.
+# Builda num Windows do GitHub (lá o helper de áudio é compilado) e manda o instalador para a VPS,
+# de onde os apps instalados se atualizam sozinhos (src/main/updater.ts).
+# Sem upload-artifact: o repositório é público e o instalador carrega a senha do servidor.
+#
+# Secrets (Settings > Secrets and variables > Actions):
+#   VITE_SERVER_URL, VITE_SERVER_PASSWORD  os mesmos do client/.env
+#   VPS_HOST                               IP da VPS
+#   VPS_SSH_KEY                            chave privada que só roda deploy/receive-update.sh
+#   VPS_KNOWN_HOSTS                        saída de: ssh-keyscan -t ed25519 <IP da VPS>
+name: Release Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - '.github/workflows/release-win.yml'
+  workflow_dispatch:
+
+# um release por vez, na ordem dos pushes
+concurrency:
+  group: release-win
+  cancel-in-progress: false
+
+jobs:
+  win:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: client
+        shell: bash
+    env:
+      # cada execução vira uma versão maior que a anterior (1.1.1, 1.1.2, ...)
+      VERSION: 1.1.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - run: npm ci
+
+      - name: Cria o .env
+        env:
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+          VITE_SERVER_PASSWORD: ${{ secrets.VITE_SERVER_PASSWORD }}
+        run: printf 'VITE_SERVER_URL=%s\nVITE_SERVER_PASSWORD=%s\n' "$VITE_SERVER_URL" "$VITE_SERVER_PASSWORD" > .env
+
+      - run: npm version "$VERSION" --no-git-tag-version
+
+      - run: npm run typecheck
+
+      - run: npm run dist
+
+      - name: Envia para a VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/resenha_ci
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/resenha_ci
+          vps() { ssh -i ~/.ssh/resenha_ci -o IdentitiesOnly=yes -o BatchMode=yes "root@$VPS_HOST" "$@"; }
+          exe="Resenha-Setup-$VERSION.exe"
+          vps put "$exe" < "dist/$exe"
+          vps put "$exe.blockmap" < "dist/$exe.blockmap"
+          # por último: só aí os apps enxergam a versão nova
+          vps put latest.yml < dist/latest.yml
+          vps prune

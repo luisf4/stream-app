@@ -1196,6 +1196,24 @@ a {
   background: var(--text);
 }
 
+.update-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-3);
+  color: var(--text-strong);
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
+  max-width: calc(100% - 32px);
+  font-size: 14px;
+}
+
 .toast {
   position: fixed;
   bottom: 24px;

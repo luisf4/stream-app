@@ -43,6 +43,17 @@ const api = {
   flashFrame: () => ipcRenderer.send('window:flash'),
   showWindow: () => ipcRenderer.send('window:show'),
   setCloseToTray: (value: boolean) => ipcRenderer.send('settings:closeToTray', value),
+  /** Avisa o processo principal se está numa call (a atualização automática espera sair). */
+  setInVoice: (value: boolean) => ipcRenderer.send('voice:active', value),
+  /** Versão nova baixada e pronta para instalar (só Windows). */
+  onUpdateReady: (callback: (version: string) => void) => {
+    const listener = (_event: IpcRendererEvent, version: string) => callback(version)
+    ipcRenderer.on('update:ready', listener)
+    return () => {
+      ipcRenderer.removeListener('update:ready', listener)
+    }
+  },
+  installUpdate: () => ipcRenderer.send('update:install'),
 }
 
 export type DesktopApi = typeof api
