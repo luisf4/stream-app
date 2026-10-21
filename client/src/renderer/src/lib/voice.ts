@@ -55,15 +55,18 @@ function withStartBitrate(sdp: string): string {
 import { reportVoiceState } from './socket'
 import { sounds } from './sounds'
 
-export type ShareQuality = '1080p30' | '720p30'
+export type ShareQuality = '1080p60' | '1080p30' | '720p60' | '720p30'
 
-// A taxa vale por pessoa assistindo e sai do upload de quem hospeda o servidor. Jogo com muito
-// movimento precisa de mais bits que texto parado.
+// A taxa vale por pessoa assistindo e sai do upload do servidor. Jogo com muito movimento precisa
+// de mais bits que texto parado, e 60 fps precisa de ~1,5× a taxa de 30 fps para a mesma nitidez.
+// A ordem aqui é a da lista no seletor.
 export const QUALITIES: Record<
   ShareQuality,
   { label: string; width: number; height: number; fps: number; bitrate: number; motionBitrate: number }
 > = {
+  '1080p60': { label: '1080p 60fps', width: 1920, height: 1080, fps: 60, bitrate: 15_000_000, motionBitrate: 30_000_000 },
   '1080p30': { label: '1080p 30fps', width: 1920, height: 1080, fps: 30, bitrate: 10_000_000, motionBitrate: 20_000_000 },
+  '720p60': { label: '720p 60fps', width: 1280, height: 720, fps: 60, bitrate: 8_000_000, motionBitrate: 15_000_000 },
   '720p30': { label: '720p 30fps', width: 1280, height: 720, fps: 30, bitrate: 5_000_000, motionBitrate: 10_000_000 },
 }
 

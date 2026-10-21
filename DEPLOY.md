@@ -27,7 +27,7 @@ Any **Ubuntu 22.04/24.04 or Debian 12** machine with **1 vCPU and 1–2 GB of RA
 | Hetzner | CX22 | ~€4/month | 20 TB of traffic included |
 | DigitalOcean / Vultr | 1 GB | ~US$6/month | Less traffic included |
 
-**Traffic:** a 1080p 30 fps stream uses up to ~10 Mbps **per viewer** (720p: ~5 Mbps); in "games and video" mode up to ~20 Mbps (720p: ~10 Mbps). Three friends watching
+**Traffic:** a 1080p 30 fps stream uses up to ~10 Mbps **per viewer** (720p: ~5 Mbps); in "games and video" mode up to ~20 Mbps (720p: ~10 Mbps), and 60 fps uses about 1.5× that. Three friends watching
 3 hours a day every day is roughly 1.2 TB/month (2.4 TB in "games and video" mode).
 
 Use **SSH key** login when creating the VPS and note its **public IP**.
@@ -239,7 +239,9 @@ The SFU forwards one copy of each stream **per viewer**, from the server's uploa
 
 | Quality | Per viewer (text/code) | Per viewer (games/video) |
 |---|---|---|
+| 1080p 60 fps | up to ~15 Mbps | up to ~30 Mbps |
 | 1080p 30 fps | up to ~10 Mbps | up to ~20 Mbps |
+| 720p 60 fps | up to ~8 Mbps | up to ~15 Mbps |
 | 720p 30 fps | up to ~5 Mbps | up to ~10 Mbps |
 
 VPS plans usually have plenty of upload; what matters is the **monthly traffic** included in the plan (see step 1).

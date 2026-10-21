@@ -18,7 +18,7 @@ the whole backend runs on a single small VPS with Docker Compose, with self-host
 - **Automatic voice leveling**: a gain that only adapts while you speak brings everyone to the same loudness, plus an
   optional noise gate and a peak limiter. All three are on/off switches that apply live, with a built-in mic test
 - **Per-user volume from 0 to 200%**, separately for voice and screen-share audio, saved locally per nickname
-- Webcam and **screen sharing with system audio**, 1080p or 720p at 30 fps
+- Webcam and **screen sharing with system audio**, 1080p or 720p at 30 or 60 fps
 - Video stage with focus mode, fullscreen and a **live stats overlay** (resolution, fps, bitrate, codec,
   hardware vs. CPU encoding, what is limiting quality, connection type, RTT, packet loss)
 
