@@ -14,7 +14,18 @@ interface Release {
   version: string
   file: string
   sizeMb: number
+  /** quando o GitHub Actions buildou (releaseDate do latest.yml) */
+  builtAt: Date | null
 }
+
+const formatDate = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: 'America/Sao_Paulo',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
 
 function latest(): Release | null {
   const manifest = join(updateDir, 'latest.yml')
@@ -22,10 +33,16 @@ function latest(): Release | null {
   const text = readFileSync(manifest, 'utf8')
   const version = text.match(/^version:\s*(\S+)/m)?.[1]
   const file = text.match(/^path:\s*(\S+)/m)?.[1]
+  const date = new Date(text.match(/^releaseDate:\s*'?([^'\s]+)/m)?.[1] ?? '')
   if (!version || !file || !INSTALLER.test(file)) return null
   const size = statSync(join(updateDir, file), { throwIfNoEntry: false })?.size
   if (size === undefined) return null
-  return { version, file, sizeMb: Math.round(size / 1024 / 1024) }
+  return {
+    version,
+    file,
+    sizeMb: Math.round(size / 1024 / 1024),
+    builtAt: Number.isNaN(date.getTime()) ? null : date,
+  }
 }
 
 const escapeHtml = (s: string) =>
@@ -39,7 +56,8 @@ function page(release: Release | null): string {
   const name = escapeHtml(config.serverName)
   const download = release
     ? `<a class="btn" href="/download">${DOWNLOAD_ICON}Baixar para Windows</a>
-      <p class="meta">Versão ${escapeHtml(release.version)} · ${release.sizeMb} MB · Windows 10 e 11</p>`
+      <p class="meta">Versão ${escapeHtml(release.version)} · ${release.sizeMb} MB · Windows 10 e 11</p>
+      ${release.builtAt ? `<p class="meta date">Build de ${formatDate.format(release.builtAt).replace(', ', ' às ')}</p>` : ''}`
     : `<p class="meta">Nenhuma versão publicada ainda. Volte daqui a pouco.</p>`
   return `<!doctype html>
 <html lang="pt-BR">
@@ -74,6 +92,7 @@ function page(release: Release | null): string {
   .btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
   .btn:focus-visible { outline: 2px solid var(--strong); outline-offset: 3px; }
   .meta { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+  .meta.date { margin-top: 2px; font-size: 13px; }
   .hint { margin: 32px 0 0; color: var(--muted); font-size: 13px; }
 </style>
 </head>
