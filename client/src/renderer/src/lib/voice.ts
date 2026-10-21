@@ -285,10 +285,12 @@ function cleanup() {
 export async function joinVoice(channelId: string) {
   const { api, voiceChannelId, settings } = get()
   if (!api) return
-  if (room && voiceChannelId === channelId) return
-  await leaveVoice(true)
-
+  if (voiceChannelId === channelId) return // já está nele (ou entrando)
+  // a sala anterior sai na hora (cleanup é síncrono); só o disconnect fica para depois, assim o
+  // "Conectando…" aparece no mesmo clique
+  const leaving = leaveVoice(true)
   set({ voiceChannelId: channelId, voiceStatus: 'connecting', speaking: [] })
+  await leaving
   const createRoom = () =>
     new Room({
       adaptiveStream: true,

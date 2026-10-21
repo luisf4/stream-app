@@ -61,7 +61,16 @@ function Lobby({ channelId, connecting }: { channelId: string; connecting: boole
         <p className="muted">Ninguém na voz ainda.</p>
       )}
       <button className="btn primary big" disabled={connecting} onClick={() => joinVoice(channelId)}>
-        {connecting ? 'Conectando…' : inOtherChannel ? 'Trocar para este canal' : 'Entrar no canal'}
+        {connecting ? (
+          <>
+            <span className="spinner" aria-hidden="true" />
+            Conectando…
+          </>
+        ) : inOtherChannel ? (
+          'Trocar para este canal'
+        ) : (
+          'Entrar no canal'
+        )}
       </button>
     </section>
   )

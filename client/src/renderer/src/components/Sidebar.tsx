@@ -47,6 +47,7 @@ export function Sidebar({
   const voiceStates = useStore((s) => s.voiceStates)
   const unread = useStore((s) => s.unread)
   const voiceChannelId = useStore((s) => s.voiceChannelId)
+  const voiceStatus = useStore((s) => s.voiceStatus)
   const speaking = useStore((s) => s.speaking)
   const online = useStore((s) => s.online)
   const [menu, setMenu] = useState<Menu | null>(null)
@@ -72,20 +73,24 @@ export function Sidebar({
         {channels.map((channel) => {
           const members = voiceStates.filter((v) => v.channelId === channel.id)
           const count = unread[channel.id] ?? 0
+          const joining = voiceChannelId === channel.id && voiceStatus === 'connecting'
           return (
             <div key={channel.id} className="channel-group">
               <button
                 className={`channel${selectedChannelId === channel.id ? ' selected' : ''}${count ? ' unread' : ''}`}
-                onClick={() => selectChannel(channel.id)}
-                onDoubleClick={() => joinVoice(channel.id)}
+                onClick={() => {
+                  selectChannel(channel.id)
+                  void joinVoice(channel.id)
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setMenu({ kind: 'channel', x: e.clientX, y: e.clientY, channel })
                 }}
-                title="Clique para abrir, duplo clique para entrar na voz"
+                title="Clique para entrar na voz"
               >
                 <SpeakerIcon size={18} />
                 <span className="channel-name">{channel.name}</span>
+                {joining && <span className="spinner" role="status" aria-label="Conectando" />}
                 {count > 0 && <span className="badge">{count > 99 ? '99+' : count}</span>}
               </button>
               {members.map((m, i) => (
@@ -213,7 +218,10 @@ function VoicePanel({ onShareScreen }: { onShareScreen: () => void }) {
   return (
     <div className="voice-panel">
       <div className="voice-status">
-        <span className={`status-text ${status}`}>{label}</span>
+        <span className={`status-text ${status}`}>
+          {status !== 'connected' && <span className="spinner" aria-hidden="true" />}
+          {label}
+        </span>
         <button className="link" onClick={() => selectChannel(voiceChannelId)}>
           {channel?.name ?? ''}
         </button>

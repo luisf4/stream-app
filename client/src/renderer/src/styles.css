@@ -385,6 +385,9 @@ a {
   min-width: 0;
 }
 .status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
   font-size: 14px;
 }
@@ -1227,4 +1230,29 @@ a {
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
   max-width: 80%;
   font-size: 14px;
+}
+
+/* carregando (entrando na voz) */
+.spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.channel .spinner {
+  color: var(--warning);
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
 }
