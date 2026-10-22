@@ -12,7 +12,7 @@ import {
   type DesktopCapturerSource,
 } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { consumeStartHidden, installIfIdle, setupUpdater } from './updater'
 
@@ -36,6 +36,21 @@ if (isMac) features.push('MacLoopbackAudioForScreenShare')
 if (process.platform === 'win32') features.push('MediaFoundationH264CbpEncoding')
 // só um "enable-features" vale: o último sobrescreveria os anteriores
 if (features.length) app.commandLine.appendSwitch('enable-features', features.join(','))
+
+// "Usar a placa de vídeo na transmissão" (Configurações > Voz e vídeo): o Chromium desliga a
+// codificação por hardware em placas/drivers da lista de bloqueio dele, e aí a transmissão cai no
+// codificador por CPU. Ignorar a lista resolve na maioria dos PCs, mas pode dar problema em driver
+// ruim, por isso é opcional. Lido antes do app iniciar; muda só ao reabrir.
+const gpuPrefsPath = join(app.getPath('userData'), 'gpu.json')
+function readForceGpu(): boolean {
+  try {
+    return JSON.parse(readFileSync(gpuPrefsPath, 'utf8')).forceGpu === true
+  } catch {
+    return false
+  }
+}
+const forceGpuAtStart = readForceGpu()
+if (forceGpuAtStart) app.commandLine.appendSwitch('ignore-gpu-blocklist')
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -279,6 +294,16 @@ ipcMain.on('window:flash', () => {
 ipcMain.on('window:show', showWindow)
 ipcMain.on('settings:closeToTray', (_event, value: boolean) => {
   closeToTray = !!value
+})
+
+ipcMain.handle('gpu:get', () => ({ saved: readForceGpu(), active: forceGpuAtStart }))
+ipcMain.handle('gpu:set', (_event, value: boolean) => {
+  writeFileSync(gpuPrefsPath, JSON.stringify({ forceGpu: !!value }))
+})
+ipcMain.on('app:relaunch', () => {
+  quitting = true
+  app.relaunch()
+  app.quit()
 })
 
 // ---------- ciclo de vida ----------

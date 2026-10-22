@@ -1,4 +1,5 @@
 import {
+  LocalVideoTrack,
   Room,
   RoomEvent,
   setLogLevel,
@@ -52,25 +53,37 @@ function withStartBitrate(sdp: string): string {
     }
   }
 }
+import { initialLevel, monitorShare } from './shareAdapt'
 import { reportVoiceState } from './socket'
 import { sounds } from './sounds'
 
-export type ShareQuality = '1080p60' | '1080p30' | '720p60' | '720p30'
+export type ShareQuality = '1080p60' | '1080p30' | '720p60' | '720p30' | '480p30'
+export type ShareHint = 'motion' | 'detail'
 
-// A taxa vale por pessoa assistindo e sai do upload do servidor. Jogo com muito movimento precisa
-// de mais bits que texto parado, e 60 fps precisa de ~1,5× a taxa de 30 fps para a mesma nitidez.
-// A ordem aqui é a da lista no seletor.
+// É o upload de quem transmite (o servidor repassa para cada amigo). A maioria das internets de casa
+// tem 10–50 Mbps de upload, e oscilando; acima disso a transmissão perdia pacote e travava. Jogo com
+// muito movimento precisa de mais bits que texto parado. A ordem aqui é a da lista no seletor.
 export const QUALITIES: Record<
   ShareQuality,
   { label: string; width: number; height: number; fps: number; bitrate: number; motionBitrate: number }
 > = {
-  '1080p60': { label: '1080p 60fps', width: 1920, height: 1080, fps: 60, bitrate: 15_000_000, motionBitrate: 30_000_000 },
-  '1080p30': { label: '1080p 30fps', width: 1920, height: 1080, fps: 30, bitrate: 10_000_000, motionBitrate: 20_000_000 },
-  '720p60': { label: '720p 60fps', width: 1280, height: 720, fps: 60, bitrate: 8_000_000, motionBitrate: 15_000_000 },
-  '720p30': { label: '720p 30fps', width: 1280, height: 720, fps: 30, bitrate: 5_000_000, motionBitrate: 10_000_000 },
+  '1080p60': { label: '1080p 60fps', width: 1920, height: 1080, fps: 60, bitrate: 8_000_000, motionBitrate: 10_000_000 },
+  '1080p30': { label: '1080p 30fps', width: 1920, height: 1080, fps: 30, bitrate: 5_000_000, motionBitrate: 7_000_000 },
+  '720p60': { label: '720p 60fps', width: 1280, height: 720, fps: 60, bitrate: 4_000_000, motionBitrate: 6_000_000 },
+  '720p30': { label: '720p 30fps', width: 1280, height: 720, fps: 30, bitrate: 2_500_000, motionBitrate: 3_500_000 },
+  '480p30': { label: '480p 30fps', width: 854, height: 480, fps: 30, bitrate: 1_200_000, motionBitrate: 1_800_000 },
 }
 
-export function shareBitrate(quality: ShareQuality, hint: ShareOptions['hint']) {
+/** Como está a transmissão (painel da voz): degrau atual e se o PC/internet está no limite. */
+export interface ShareStatus {
+  quality: ShareQuality
+  auto: boolean
+  problem: 'cpu' | 'bandwidth' | null
+  /** codificando pela CPU (sem a placa de vídeo) */
+  software: boolean
+}
+
+export function shareBitrate(quality: ShareQuality, hint: ShareHint) {
   const q = QUALITIES[quality]
   return hint === 'motion' ? q.motionBitrate : q.bitrate
 }
@@ -78,16 +91,19 @@ export function shareBitrate(quality: ShareQuality, hint: ShareOptions['hint']) 
 const SCREEN_AUDIO_BPS = 96_000
 
 export interface ShareOptions {
-  quality: ShareQuality
+  /** auto = começa no último degrau estável e sobe/desce conforme o PC e a internet aguentam */
+  quality: ShareQuality | 'auto'
   audio: boolean
   /** motion = jogos/vídeos (fluidez); detail = texto/código (nitidez) */
-  hint: 'motion' | 'detail'
+  hint: ShareHint
 }
 
 let room: Room | null = null
 /** tentativa de conexão em andamento (ainda não é a sala "oficial") */
 let joining: Room | null = null
 let mutedBeforeDeafen = false
+/** para o acompanhamento da qualidade da transmissão */
+let stopShareMonitor: (() => void) | null = null
 
 interface AudioEntry {
   el: HTMLMediaElement
@@ -270,6 +286,8 @@ function wire(r: Room) {
 
 function cleanup() {
   room = null
+  stopShareMonitor?.()
+  stopShareMonitor = null
   audioEntries.forEach((e) => {
     removeBoost(e)
     e.el.remove()
@@ -492,8 +510,10 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
   const r = room
   if (!r) return showToast('Entre num canal de voz primeiro')
   await stopScreenShare()
-  const q = QUALITIES[options.quality]
-  const bitrate = shareBitrate(options.quality, options.hint)
+  const auto = options.quality === 'auto'
+  const level = options.quality === 'auto' ? initialLevel(options.hint) : options.quality
+  const q = QUALITIES[level]
+  const bitrate = shareBitrate(level, options.hint)
   startBitrateKbps = Math.round((bitrate * 0.6) / 1000)
 
   const capture = async (audio: boolean) => {
@@ -583,12 +603,19 @@ export async function startScreenShare(sourceId: string, options: ShareOptions) 
     return showToast(`Falha ao transmitir: ${errorText(err)}`)
   }
 
+  const published = r.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track
+  if (published instanceof LocalVideoTrack) {
+    stopShareMonitor = monitorShare(published, level, options.hint, auto)
+  }
+
   set({ sharing: true })
   reportVoiceState()
   bump()
 }
 
 export async function stopScreenShare() {
+  stopShareMonitor?.()
+  stopShareMonitor = null
   const lp = room?.localParticipant
   if (lp) {
     for (const source of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) {

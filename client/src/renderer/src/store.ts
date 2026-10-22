@@ -3,6 +3,7 @@ import { Api, loadSession, saveSession } from './lib/api'
 import { presetServer } from './lib/config'
 import { loadSettings, saveSettings, type Settings } from './lib/settings'
 import type { Channel, Message, Session, User, VoiceState } from './lib/types'
+import type { ShareStatus } from './lib/voice'
 
 export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting'
 
@@ -30,6 +31,8 @@ export interface State {
   deafened: boolean
   camera: boolean
   sharing: boolean
+  /** qualidade atual da minha transmissão e se o PC/internet está no limite */
+  shareStatus: ShareStatus | null
   speaking: string[]
   /** incrementa a cada evento do LiveKit para re-renderizar o palco */
   roomVersion: number
@@ -78,6 +81,7 @@ export const useStore = create<State>(() => ({
   deafened: false,
   camera: false,
   sharing: false,
+  shareStatus: null,
   speaking: [],
   roomVersion: 0,
   serverMuted: false,

@@ -6,6 +6,8 @@ import { UserVolume } from './UserVolume'
 import {
   joinVoice,
   leaveVoice,
+  QUALITIES,
+  type ShareStatus,
   stopScreenShare,
   toggleCamera,
   toggleDeafen,
@@ -283,6 +285,7 @@ function VoicePanel({ onShareScreen }: { onShareScreen: () => void }) {
   const channel = useStore((s) => s.channels.find((c) => c.id === s.voiceChannelId))
   const camera = useStore((s) => s.camera)
   const sharing = useStore((s) => s.sharing)
+  const shareStatus = useStore((s) => s.shareStatus)
   if (!voiceChannelId) return null
 
   const label =
@@ -293,35 +296,71 @@ function VoicePanel({ onShareScreen }: { onShareScreen: () => void }) {
         : 'Conectando…'
 
   return (
-    <div className="voice-panel">
-      <div className="voice-status">
-        <span className={`status-text ${status}`}>
-          {status !== 'connected' && <span className="spinner" aria-hidden="true" />}
-          {label}
-        </span>
-        <button className="link" onClick={() => selectChannel(voiceChannelId)}>
-          {channel?.name ?? ''}
-        </button>
+    <>
+      {sharing && shareStatus && <ShareHealth status={shareStatus} />}
+      <div className="voice-panel">
+        <div className="voice-status">
+          <span className={`status-text ${status}`}>
+            {status !== 'connected' && <span className="spinner" aria-hidden="true" />}
+            {label}
+          </span>
+          <button className="link" onClick={() => selectChannel(voiceChannelId)}>
+            {channel?.name ?? ''}
+          </button>
+        </div>
+        <div className="voice-actions">
+          <button
+            className={`icon-btn${camera ? ' active' : ''}`}
+            title={camera ? 'Desligar câmera' : 'Ligar câmera'}
+            onClick={toggleCamera}
+          >
+            <VideoIcon size={18} />
+          </button>
+          <button
+            className={`icon-btn${sharing ? ' active' : ''}`}
+            title={sharing ? 'Parar transmissão' : 'Compartilhar tela'}
+            onClick={sharing ? () => stopScreenShare() : onShareScreen}
+          >
+            <MonitorIcon size={18} />
+          </button>
+          <button className="icon-btn danger" title="Sair da voz" onClick={() => leaveVoice()}>
+            <PhoneOffIcon size={18} />
+          </button>
+        </div>
       </div>
-      <div className="voice-actions">
-        <button
-          className={`icon-btn${camera ? ' active' : ''}`}
-          title={camera ? 'Desligar câmera' : 'Ligar câmera'}
-          onClick={toggleCamera}
-        >
-          <VideoIcon size={18} />
-        </button>
-        <button
-          className={`icon-btn${sharing ? ' active' : ''}`}
-          title={sharing ? 'Parar transmissão' : 'Compartilhar tela'}
-          onClick={sharing ? () => stopScreenShare() : onShareScreen}
-        >
-          <MonitorIcon size={18} />
-        </button>
-        <button className="icon-btn danger" title="Sair da voz" onClick={() => leaveVoice()}>
-          <PhoneOffIcon size={18} />
-        </button>
+    </>
+  )
+}
+
+/** Qualidade da minha transmissão e aviso quando o PC ou a internet não aguenta. */
+function ShareHealth({ status }: { status: ShareStatus }) {
+  const { quality, auto, problem, software } = status
+  const atBottom = quality === '480p30'
+  let warning: string | null = null
+  if (problem === 'bandwidth') {
+    warning = auto
+      ? 'Sua internet está no limite, mesmo na qualidade mínima.'
+      : `Sua internet não está aguentando ${QUALITIES[quality].label}. Use a Automática ou uma qualidade menor.`
+  } else if (problem === 'cpu') {
+    warning =
+      auto || atBottom
+        ? 'Seu PC está no limite, mesmo na qualidade mínima.'
+        : `Seu PC não está dando conta de ${QUALITIES[quality].label}. Use a Automática ou uma qualidade menor.`
+  }
+
+  return (
+    <div className={`share-health${warning ? ' warn' : ''}`} role="status">
+      <div>
+        <span className="live">AO VIVO</span> {QUALITIES[quality].label}
+        {auto && <span className="muted"> · automática</span>}
       </div>
+      {warning && <p>{warning}</p>}
+      {software && (
+        <p className="muted">
+          Codificando pela CPU (sem placa de vídeo). Se travar, ative “Usar a placa de vídeo” em
+          Configurações → Voz e vídeo.
+        </p>
+      )}
     </div>
   )
 }

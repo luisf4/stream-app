@@ -44,6 +44,10 @@ const api = {
   flashFrame: () => ipcRenderer.send('window:flash'),
   showWindow: () => ipcRenderer.send('window:show'),
   setCloseToTray: (value: boolean) => ipcRenderer.send('settings:closeToTray', value),
+  /** "Usar a placa de vídeo na transmissão": saved = escolhido, active = valendo agora (muda ao reabrir). */
+  getForceGpu: (): Promise<{ saved: boolean; active: boolean }> => ipcRenderer.invoke('gpu:get'),
+  setForceGpu: (value: boolean): Promise<void> => ipcRenderer.invoke('gpu:set', value),
+  relaunch: () => ipcRenderer.send('app:relaunch'),
   /** Avisa o processo principal se está numa call (a atualização automática espera sair). */
   setInVoice: (value: boolean) => ipcRenderer.send('voice:active', value),
   /** Versão nova baixada e pronta para instalar (só Windows). */

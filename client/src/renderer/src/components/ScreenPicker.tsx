@@ -3,14 +3,22 @@ import type { ScreenSource } from '../../../preload'
 import { QUALITIES, shareBitrate, startScreenShare, type ShareOptions, type ShareQuality } from '../lib/voice'
 import { Modal } from './Modal'
 
-const PREFS_KEY = 'resenha.share'
+// chave nova: quem tinha uma qualidade fixa salva começa na Automática
+const PREFS_KEY = 'resenha.share.v2'
+const OLD_PREFS_KEY = 'resenha.share'
 
 function loadPrefs(): ShareOptions {
-  const fallback: ShareOptions = { quality: '720p30', audio: true, hint: 'motion' }
+  const fallback: ShareOptions = { quality: 'auto', audio: true, hint: 'motion' }
   try {
-    const saved = { ...fallback, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
-    // qualidade salva de uma versão antiga (ex: 1080p60) que não existe mais
-    if (!(saved.quality in QUALITIES)) saved.quality = fallback.quality
+    const old = JSON.parse(localStorage.getItem(OLD_PREFS_KEY) ?? '{}')
+    const saved = {
+      ...fallback,
+      audio: old.audio ?? fallback.audio,
+      hint: old.hint ?? fallback.hint,
+      ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}'),
+    }
+    // qualidade salva de uma versão antiga que não existe mais
+    if (saved.quality !== 'auto' && !(saved.quality in QUALITIES)) saved.quality = fallback.quality
     return saved
   } catch {
     return fallback
@@ -79,11 +87,12 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
           <span>Qualidade</span>
           <select
             value={prefs.quality}
-            onChange={(e) => setPrefs({ ...prefs, quality: e.target.value as ShareQuality })}
+            onChange={(e) => setPrefs({ ...prefs, quality: e.target.value as ShareOptions['quality'] })}
           >
+            <option value="auto">Automática (ajusta ao seu PC e internet)</option>
             {Object.entries(QUALITIES).map(([key, q]) => (
               <option key={key} value={key}>
-                {`${q.label} · ~${(shareBitrate(key as ShareQuality, prefs.hint) / 1_000_000).toLocaleString('pt-BR')} Mbps por amigo`}
+                {`${q.label} · ~${(shareBitrate(key as ShareQuality, prefs.hint) / 1_000_000).toLocaleString('pt-BR')} Mbps de upload`}
               </option>
             ))}
           </select>

@@ -132,7 +132,42 @@ function VoiceTab() {
         </SettingRow>
         <MicTest />
       </div>
+
+      <h3>Transmissão</h3>
+      <div className="settings-card">
+        <ForceGpuSetting />
+      </div>
     </>
+  )
+}
+
+/** Liga o "ignore-gpu-blocklist" do Chromium (vale ao reabrir o app). */
+function ForceGpuSetting() {
+  const [state, setState] = useState<{ saved: boolean; active: boolean } | null>(null)
+  useEffect(() => {
+    void window.api.getForceGpu().then(setState)
+  }, [])
+  if (!state) return null
+
+  return (
+    <SettingRow
+      title="Usar a placa de vídeo na transmissão"
+      description="Para PCs em que a transmissão sai pela CPU e trava o jogo. Se a tela do app ficar preta ou piscando, desligue."
+      checked={state.saved}
+      onChange={async (saved) => {
+        await window.api.setForceGpu(saved)
+        setState({ ...state, saved })
+      }}
+    >
+      {state.saved !== state.active && (
+        <div className="setting-restart">
+          <span className="muted">Vale depois de reabrir o app.</span>
+          <button className="btn primary" onClick={() => window.api.relaunch()}>
+            Reabrir agora
+          </button>
+        </div>
+      )}
+    </SettingRow>
   )
 }
 

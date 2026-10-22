@@ -419,6 +419,20 @@ a {
   white-space: nowrap;
 }
 
+.share-health {
+  padding: 8px 12px;
+  border-top: 1px solid var(--bg-0);
+  background: #1f2023;
+  font-size: 12px;
+  color: var(--text);
+}
+.share-health p {
+  margin: 4px 0 0;
+  line-height: 1.35;
+}
+.share-health.warn p:first-of-type {
+  color: var(--warning);
+}
 .voice-panel {
   display: flex;
   align-items: center;
@@ -1560,6 +1574,14 @@ a {
   margin: 0;
   color: var(--text-strong);
   overflow-wrap: anywhere;
+}
+.setting-restart {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 13px;
 }
 /* propositalmente quase invisível: só quem sabe que existe procura */
 .admin-link {
