@@ -2,6 +2,17 @@ import type { Attachment, Message, Session } from './types'
 
 const SESSION_KEY = 'resenha.session'
 const LAST_KEY = 'resenha.last'
+const DEVICE_KEY = 'resenha.device'
+
+/** Id fixo desta instalação; é o que um ban de admin bloqueia. */
+export function deviceId(): string {
+  let id = localStorage.getItem(DEVICE_KEY)
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem(DEVICE_KEY, id)
+  }
+  return id
+}
 
 export function loadSession(): Session | null {
   try {
@@ -53,7 +64,7 @@ export async function login(serverUrl: string, password: string, nickname: strin
     res = await fetch(`${serverUrl}/api/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, nickname }),
+      body: JSON.stringify({ password, nickname, deviceId: deviceId() }),
     })
   } catch {
     throw new Error('Não foi possível conectar ao servidor. Confira o endereço.')
@@ -71,7 +82,7 @@ export class Api {
   }
 
   private headers() {
-    return { Authorization: `Bearer ${this.session.token}` }
+    return { Authorization: `Bearer ${this.session.token}`, 'X-Resenha-Device': deviceId() }
   }
 
   async get<T>(path: string): Promise<T> {
@@ -84,9 +95,20 @@ export class Api {
   }
 
   livekitToken(channelId: string) {
-    return this.get<{ url: string; token: string }>(
+    return this.get<{ url: string; token: string; voiceMuted: boolean }>(
       `/api/livekit-token?channel=${encodeURIComponent(channelId)}`,
     )
+  }
+
+  /** Vira admin com a senha de admin, ou deixa de ser (`false`). Devolve a sessão nova. */
+  async setAdmin(password: string | false): Promise<Session> {
+    const res = await fetch(this.url('/api/admin'), {
+      method: 'POST',
+      headers: { ...this.headers(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(password === false ? { admin: false } : { password }),
+    })
+    const data = await parse<Pick<Session, 'token' | 'user'>>(res)
+    return { ...this.session, ...data }
   }
 
   async upload(file: File): Promise<Attachment> {

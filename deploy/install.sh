@@ -53,10 +53,14 @@ if [ ! -f .env ]; then
   read -rp "Canais de voz (separados por vírgula) [Geral,Jogos,Filmes]: " CHANNELS
   CHANNELS="${CHANNELS:-Geral,Jogos,Filmes}"
 
+  read -rsp "Senha de admin (Enter = sem admin): " ADMIN_PASSWORD
+  echo
+
   cat > .env <<EOF
 DOMAIN=${DOMAIN}
 SERVER_NAME=${SERVER_NAME}
 SERVER_PASSWORD=${SERVER_PASSWORD}
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
 JWT_SECRET=$(openssl rand -hex 32)
 LIVEKIT_API_KEY=API$(openssl rand -hex 6)
 LIVEKIT_API_SECRET=$(openssl rand -hex 32)

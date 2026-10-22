@@ -24,11 +24,16 @@ export const config = {
   serverName: env.SERVER_NAME ?? 'Resenha',
   password: required('SERVER_PASSWORD', 'amigos'),
   jwtSecret: required('JWT_SECRET', 'dev-secret-troque-isto'),
+  // quem digita esta senha nas Configurações vira admin; vazia = ninguém vira
+  adminPassword: env.ADMIN_PASSWORD ?? '',
   livekit: {
     apiKey: required('LIVEKIT_API_KEY', 'devkey'),
     apiSecret: required('LIVEKIT_API_SECRET', 'secret'),
     // URL que o app usa para falar com o LiveKit (ws:// local, wss://dominio em produção)
     publicUrl: env.LIVEKIT_PUBLIC_URL || 'ws://localhost:7880',
+    // URL que o servidor usa para a API do LiveKit (mutar, expulsar); em produção o Caddy
+    // encaminha /twirp do próprio domínio para ele
+    apiUrl: (env.LIVEKIT_URL || env.LIVEKIT_PUBLIC_URL || 'ws://localhost:7880').replace(/^ws/, 'http'),
   },
   defaultChannels: (env.CHANNELS ?? 'Geral,Jogos,Filmes')
     .split(',')

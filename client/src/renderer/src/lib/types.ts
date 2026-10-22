@@ -1,6 +1,7 @@
 export interface User {
   id: string
   nickname: string
+  admin?: boolean
 }
 
 export interface Session {
@@ -46,4 +47,6 @@ export interface VoiceState {
   deafened: boolean
   camera: boolean
   streaming: boolean
+  /** mutado por um admin */
+  serverMuted?: boolean
 }

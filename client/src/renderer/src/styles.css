@@ -1561,6 +1561,33 @@ a {
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
+/* propositalmente quase invisível: só quem sabe que existe procura */
+.admin-link {
+  display: block;
+  margin: 24px 0 0 auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.35;
+}
+.admin-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+.ban-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ban-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-strong);
+}
 @media (prefers-reduced-motion: reduce) {
   .toggle,
   .toggle span {

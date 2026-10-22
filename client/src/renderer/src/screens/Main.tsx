@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { ChatPanel } from '../components/ChatPanel'
 import { ChatIcon, HashIcon, SpeakerIcon } from '../components/Icons'
+import { ConfirmModal } from '../components/Modal'
 import { ScreenPicker } from '../components/ScreenPicker'
 import { SettingsModal } from '../components/SettingsModal'
 import { Sidebar } from '../components/Sidebar'
 import { VoiceStage } from '../components/VoiceStage'
 import { logout } from '../lib/session'
-import { connectSocket, disconnectSocket } from '../lib/socket'
+import { connectSocket, disconnectSocket, request } from '../lib/socket'
 import { leaveVoice, toggleDeafen, toggleMute } from '../lib/voice'
 import { showToast, updateSettings, useStore } from '../store'
 
@@ -22,15 +23,23 @@ export function Main() {
   const chatOpen = useStore((s) => s.settings.chatOpen)
   const toast = useStore((s) => s.toast)
   const voiceChannelId = useStore((s) => s.voiceChannelId)
+  const banTarget = useStore((s) => s.banTarget)
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [picker, setPicker] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
-    connectSocket(session, () => {
-      logout()
-      showToast('Sua sessão expirou ou a senha do servidor mudou. Entre de novo.')
-    })
+    connectSocket(
+      session,
+      () => {
+        logout()
+        showToast('Sua sessão expirou ou a senha do servidor mudou. Entre de novo.')
+      },
+      () => {
+        logout()
+        useStore.setState({ notice: 'Você foi banido deste servidor.' })
+      },
+    )
     const onUnload = () => void leaveVoice(true)
     window.addEventListener('beforeunload', onUnload)
     return () => {
@@ -38,7 +47,9 @@ export function Main() {
       void leaveVoice(true)
       disconnectSocket()
     }
-  }, [session])
+    // só o servidor/usuário importam: trocar o token (virar admin) reconecta sem sair da voz
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.serverUrl, session.user.id])
 
   useEffect(() => {
     window.api.setShortcuts(shortcuts).then((result) => {
@@ -119,6 +130,19 @@ export function Main() {
 
       {picker && <ScreenPicker onClose={() => setPicker(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {banTarget && (
+        <ConfirmModal
+          title={`Banir ${banTarget.nickname}`}
+          text="A pessoa sai na hora e este PC não consegue mais entrar, nem com outro apelido. Dá para desbanir em Configurações → Admin."
+          confirmText="Banir"
+          onClose={() => useStore.setState({ banTarget: null })}
+          onConfirm={async () => {
+            useStore.setState({ banTarget: null })
+            const res = await request('admin:ban', { userId: banTarget.id })
+            showToast(res.ok ? `${banTarget.nickname} foi banido` : (res.error ?? 'Erro'))
+          }}
+        />
+      )}
       {toast && <div className="toast">{toast}</div>}
       {updateVersion && (
         <div className="update-card" role="status">

@@ -6,7 +6,13 @@ import { config } from './config.js'
 export interface User {
   id: string
   nickname: string
+  /** gerado pelo app uma vez por instalação; é o que o ban bloqueia (nunca vai para os outros) */
+  deviceId: string
+  admin: boolean
 }
+
+/** O que os outros veem de um usuário. */
+export const publicUser = (user: User) => ({ id: user.id, nickname: user.nickname, admin: user.admin })
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest()
 
@@ -17,18 +23,39 @@ export function checkPassword(password: string): boolean {
   return timingSafeEqual(sha256(password), sha256(config.password))
 }
 
-export function issueToken(nickname: string): { token: string; user: User } {
-  const user = { id: randomUUID(), nickname }
-  const token = jwt.sign({ name: nickname }, signingKey, { subject: user.id, expiresIn: '30d' })
+export function checkAdminPassword(password: unknown): boolean {
+  if (!config.adminPassword || typeof password !== 'string') return false
+  return timingSafeEqual(sha256(password), sha256(config.adminPassword))
+}
+
+// Vai no token de quem virou admin: trocar ADMIN_PASSWORD tira o admin de todo mundo.
+const adminMark = () =>
+  config.adminPassword ? sha256(`admin\0${config.adminPassword}`).toString('hex').slice(0, 16) : null
+
+export const isDeviceId = (value: unknown): value is string =>
+  typeof value === 'string' && /^[0-9a-f-]{36}$/i.test(value)
+
+export function issueToken(
+  nickname: string,
+  deviceId: string,
+  admin = false,
+  id: string = randomUUID(),
+): { token: string; user: User } {
+  const user = { id, nickname, deviceId, admin: admin && !!adminMark() }
+  const claims = { name: nickname, dev: deviceId, ...(user.admin ? { adm: adminMark() } : {}) }
+  const token = jwt.sign(claims, signingKey, { subject: id, expiresIn: '30d' })
   return { token, user }
 }
 
-export function verifyToken(token: unknown): User | null {
+/** `fallbackDeviceId`: tokens de antes do ban não têm o aparelho; o socket manda separado. */
+export function verifyToken(token: unknown, fallbackDeviceId?: unknown): User | null {
   if (typeof token !== 'string') return null
   try {
     const payload = jwt.verify(token, signingKey) as jwt.JwtPayload
     if (typeof payload.sub !== 'string' || typeof payload.name !== 'string') return null
-    return { id: payload.sub, nickname: payload.name }
+    const deviceId = isDeviceId(payload.dev) ? payload.dev : isDeviceId(fallbackDeviceId) ? fallbackDeviceId : ''
+    const admin = typeof payload.adm === 'string' && payload.adm === adminMark()
+    return { id: payload.sub, nickname: payload.name, deviceId, admin }
   } catch {
     return null
   }
@@ -37,7 +64,9 @@ export function verifyToken(token: unknown): User | null {
 /** Lê o "Authorization: Bearer" da requisição ou responde 401. */
 export function authenticate(req: FastifyRequest): User {
   const header = req.headers.authorization
-  const user = header?.startsWith('Bearer ') ? verifyToken(header.slice(7)) : null
+  const user = header?.startsWith('Bearer ')
+    ? verifyToken(header.slice(7), req.headers['x-resenha-device'])
+    : null
   if (!user) throw Object.assign(new Error('Não autorizado'), { statusCode: 401 })
   return user
 }

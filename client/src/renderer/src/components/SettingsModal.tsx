@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { startMicTest, type MicMeter } from '../lib/noise'
-import { logout } from '../lib/session'
+import { logout, replaceSession } from '../lib/session'
+import { request } from '../lib/socket'
 import { micSettings, switchDevice, updateMicSettings } from '../lib/voice'
-import { updateSettings, useStore } from '../store'
+import { showToast, updateSettings, useStore } from '../store'
 import { LogOutIcon } from './Icons'
 import { Modal } from './Modal'
 
-type Tab = 'voice' | 'shortcuts' | 'app' | 'account'
+type Tab = 'voice' | 'shortcuts' | 'app' | 'account' | 'admin'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'voice', label: 'Voz e vídeo' },
@@ -17,12 +18,14 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('voice')
+  const isAdmin = useStore((s) => !!s.session?.user.admin)
+  const tabs = isAdmin ? [...TABS, { id: 'admin' as const, label: 'Admin' }] : TABS
 
   return (
     <Modal title="Configurações" onClose={onClose} className="settings-modal">
       <div className="settings">
         <nav className="settings-nav" role="tablist" aria-orientation="vertical">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.id}
               role="tab"
@@ -38,7 +41,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           {tab === 'voice' && <VoiceTab />}
           {tab === 'shortcuts' && <ShortcutsTab />}
           {tab === 'app' && <AppTab />}
-          {tab === 'account' && <AccountTab onClose={onClose} />}
+          {tab === 'account' && <AccountTab onClose={onClose} onAdmin={() => setTab('admin')} />}
+          {tab === 'admin' && isAdmin && <AdminTab onLeft={() => setTab('account')} />}
         </div>
       </div>
     </Modal>
@@ -192,8 +196,9 @@ function AppTab() {
   )
 }
 
-function AccountTab({ onClose }: { onClose: () => void }) {
+function AccountTab({ onClose, onAdmin }: { onClose: () => void; onAdmin: () => void }) {
   const session = useStore((s) => s.session)!
+  const [adminPrompt, setAdminPrompt] = useState(false)
   return (
     <>
       <h3>Conta</h3>
@@ -215,6 +220,127 @@ function AccountTab({ onClose }: { onClose: () => void }) {
         }}
       >
         <LogOutIcon size={16} /> Sair do servidor
+      </button>
+      {!session.user.admin && (
+        <button className="admin-link" onClick={() => setAdminPrompt(true)}>
+          admin
+        </button>
+      )}
+      {adminPrompt && <AdminLogin onClose={() => setAdminPrompt(false)} onDone={onAdmin} />}
+    </>
+  )
+}
+
+function AdminLogin({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const api = useStore((s) => s.api)!
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  return (
+    <Modal title="Entrar como admin" onClose={onClose}>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault()
+          setLoading(true)
+          setError('')
+          try {
+            replaceSession(await api.setAdmin(password))
+            onClose()
+            onDone()
+          } catch (err) {
+            setError((err as Error).message)
+          } finally {
+            setLoading(false)
+          }
+        }}
+      >
+        <label className="field">
+          <span>Senha de admin</span>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="modal-actions">
+          <button type="button" className="btn ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="btn primary" disabled={!password || loading}>
+            Entrar
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+interface Ban {
+  deviceId: string
+  nickname: string
+  createdAt: number
+}
+
+function AdminTab({ onLeft }: { onLeft: () => void }) {
+  const api = useStore((s) => s.api)!
+  const connected = useStore((s) => s.socketConnected)
+  const [bans, setBans] = useState<Ban[] | null>(null)
+
+  useEffect(() => {
+    if (!connected) return
+    void request<{ bans: Ban[] }>('admin:bans', {}).then((res) => {
+      if (res.ok) setBans(res.bans)
+      else showToast(res.error ?? 'Erro')
+    })
+  }, [connected])
+
+  const unban = async (ban: Ban) => {
+    const res = await request<{ bans: Ban[] }>('admin:unban', { deviceId: ban.deviceId })
+    if (res.ok) {
+      setBans(res.bans)
+      showToast(`${ban.nickname} pode entrar de novo`)
+    } else showToast(res.error ?? 'Erro')
+  }
+
+  return (
+    <>
+      <h3>Admin</h3>
+      <p className="muted">
+        Clique com o botão direito em alguém (na lista Online, na voz ou no palco) para mutar na
+        voz, expulsar da call ou banir. Você também pode apagar qualquer mensagem.
+      </p>
+      <h3>Banidos</h3>
+      <div className="settings-card">
+        {bans === null ? (
+          <p className="muted">Carregando…</p>
+        ) : bans.length === 0 ? (
+          <p className="muted">Ninguém banido.</p>
+        ) : (
+          <ul className="ban-list">
+            {bans.map((b) => (
+              <li key={b.deviceId}>
+                <span>
+                  {b.nickname}
+                  <small className="muted"> · {new Date(b.createdAt).toLocaleDateString('pt-BR')}</small>
+                </span>
+                <button className="btn ghost" onClick={() => unban(b)}>
+                  Desbanir
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <button
+        className="btn ghost-outline"
+        onClick={async () => {
+          try {
+            onLeft()
+            replaceSession(await api.setAdmin(false))
+          } catch (err) {
+            showToast((err as Error).message)
+          }
+        }}
+      >
+        Deixar de ser admin
       </button>
     </>
   )

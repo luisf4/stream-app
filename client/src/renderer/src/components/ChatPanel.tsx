@@ -263,7 +263,7 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
                   />
                 ))}
               </div>
-              {m.userId === me.id && (
+              {(m.userId === me.id || me.admin) && (
                 <button
                   className="message-delete icon-btn"
                   title="Apagar mensagem"

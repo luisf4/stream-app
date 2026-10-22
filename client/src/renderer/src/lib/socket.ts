@@ -1,15 +1,22 @@
 import { io, type Socket } from 'socket.io-client'
-import { selectChannel, useStore } from '../store'
+import { selectChannel, showToast, useStore } from '../store'
+import { deviceId } from './api'
 import { mentions } from './mentions'
 import { sounds } from './sounds'
 import type { Channel, Message, Session, User, VoiceState } from './types'
+import { leaveVoice, setServerMuted } from './voice'
 
 let socket: Socket | null = null
 
-export function connectSocket(session: Session, onUnauthorized: () => void) {
+export function connectSocket(
+  session: Session,
+  onUnauthorized: () => void,
+  onBanned: () => void,
+) {
   disconnectSocket()
   const s = io(session.serverUrl, {
-    auth: { token: session.token },
+    // lido a cada conexão: o token muda ao virar admin (replaceSession)
+    auth: (cb) => cb({ token: useStore.getState().session?.token, deviceId: deviceId() }),
     transports: ['websocket'],
   })
   socket = s
@@ -23,6 +30,12 @@ export function connectSocket(session: Session, onUnauthorized: () => void) {
   s.on('disconnect', () => set({ socketConnected: false }))
   s.on('connect_error', (err) => {
     if (err.message === 'unauthorized') onUnauthorized()
+    if (err.message === 'banned') onBanned()
+  })
+  s.on('banned', onBanned)
+  s.on('voice:kicked', () => {
+    void leaveVoice()
+    showToast('Um admin tirou você da call')
   })
 
   const applyChannels = (channels: Channel[]) => {
@@ -39,7 +52,12 @@ export function connectSocket(session: Session, onUnauthorized: () => void) {
     applyChannels(data.channels)
   })
   s.on('channels', applyChannels)
-  s.on('voice:states', (voiceStates: VoiceState[]) => set({ voiceStates }))
+  s.on('voice:states', (voiceStates: VoiceState[]) => {
+    set({ voiceStates })
+    const { session, voiceChannelId } = get()
+    const mine = voiceStates.find((v) => v.userId === session?.user.id && v.channelId === voiceChannelId)
+    if (mine) setServerMuted(!!mine.serverMuted)
+  })
   s.on('online', (online: User[]) => set({ online }))
 
   s.on('message:new', (message: Message) => {
@@ -98,6 +116,11 @@ function notify(message: Message, pinged: boolean) {
     window.api.showWindow()
     selectChannel(message.channelId)
   }
+}
+
+/** Reconecta com o token atual (os listeners continuam). */
+export function reconnectSocket() {
+  socket?.disconnect().connect()
 }
 
 export function disconnectSocket() {

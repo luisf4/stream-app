@@ -5,9 +5,19 @@ import { extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { FastifyInstance } from 'fastify'
 import { AccessToken } from 'livekit-server-sdk'
-import { authenticate, checkPassword, issueToken, tooManyAttempts } from './auth.js'
+import {
+  authenticate,
+  checkAdminPassword,
+  checkPassword,
+  isDeviceId,
+  issueToken,
+  tooManyAttempts,
+} from './auth.js'
 import { config, updateDir, uploadDir } from './config.js'
-import { getChannel, getMessages, insertAttachment } from './db.js'
+import { getChannel, getMessages, insertAttachment, isBanned, isVoiceMuted } from './db.js'
+import { publishSources } from './livekit.js'
+
+const BANNED = 'Você foi banido deste servidor.'
 
 export function registerRoutes(app: FastifyInstance) {
   app.get('/api/health', async () => ({ ok: true }))
@@ -16,20 +26,39 @@ export function registerRoutes(app: FastifyInstance) {
     if (tooManyAttempts(req.ip)) {
       return reply.code(429).send({ error: 'Muitas tentativas, espere um minuto.' })
     }
-    const body = (req.body ?? {}) as { password?: unknown; nickname?: unknown }
+    const body = (req.body ?? {}) as { password?: unknown; nickname?: unknown; deviceId?: unknown }
     const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : ''
     if (nickname.length < 1 || nickname.length > 32) {
       return reply.code(400).send({ error: 'Apelido deve ter entre 1 e 32 caracteres.' })
     }
+    if (!isDeviceId(body.deviceId)) {
+      return reply.code(400).send({ error: 'Atualize o app para entrar.' })
+    }
     if (typeof body.password !== 'string' || !checkPassword(body.password)) {
       return reply.code(401).send({ error: 'Senha do servidor incorreta.' })
     }
-    const { token, user } = issueToken(nickname)
+    if (isBanned(body.deviceId)) return reply.code(403).send({ error: BANNED })
+    const { token, user } = issueToken(nickname, body.deviceId)
     return {
       token,
       user,
       server: { name: config.serverName, maxUploadMb: config.maxUploadMb },
     }
+  })
+
+  // Virar admin (com a senha de admin) ou deixar de ser (admin: false). Devolve um token novo
+  // para o mesmo usuário.
+  app.post('/api/admin', async (req, reply) => {
+    const user = authenticate(req)
+    const body = (req.body ?? {}) as { password?: unknown; admin?: unknown }
+    if (body.admin === false) return issueToken(user.nickname, user.deviceId, false, user.id)
+    if (tooManyAttempts(req.ip)) {
+      return reply.code(429).send({ error: 'Muitas tentativas, espere um minuto.' })
+    }
+    if (!checkAdminPassword(body.password)) {
+      return reply.code(401).send({ error: 'Senha de admin incorreta.' })
+    }
+    return issueToken(user.nickname, user.deviceId, true, user.id)
   })
 
   app.get('/api/channels/:id/messages', async (req, reply) => {
@@ -44,10 +73,12 @@ export function registerRoutes(app: FastifyInstance) {
 
   app.get('/api/livekit-token', async (req, reply) => {
     const user = authenticate(req)
+    if (isBanned(user.deviceId)) return reply.code(403).send({ error: BANNED })
     const { channel } = req.query as { channel?: string }
     if (!channel || getChannel(channel)?.kind !== 'voice') {
       return reply.code(404).send({ error: 'Canal de voz não encontrado' })
     }
+    const voiceMuted = isVoiceMuted(user.deviceId)
     const at = new AccessToken(config.livekit.apiKey, config.livekit.apiSecret, {
       identity: user.id,
       name: user.nickname,
@@ -57,12 +88,14 @@ export function registerRoutes(app: FastifyInstance) {
       room: channel,
       roomJoin: true,
       canPublish: true,
+      canPublishSources: publishSources(voiceMuted),
       canSubscribe: true,
       canPublishData: true,
     })
     return {
       url: config.livekit.publicUrl,
       token: await at.toJwt(),
+      voiceMuted,
     }
   })
 

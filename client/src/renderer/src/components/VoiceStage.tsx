@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getRoom, joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleMute } from '../lib/voice'
 import { useStore } from '../store'
 import { Avatar } from './Avatar'
+import { AdminActions } from './AdminActions'
 import { ContextMenu } from './ContextMenu'
 import {
   ExpandIcon,
@@ -288,6 +289,11 @@ function Tile({
         >
           <ContextMenu x={volumeMenu.x} y={volumeMenu.y} onClose={() => setVolumeMenu(null)}>
             <UserVolume nickname={name} />
+            <AdminActions
+              userId={participant.identity}
+              nickname={name}
+              onDone={() => setVolumeMenu(null)}
+            />
           </ContextMenu>
         </div>
       )}

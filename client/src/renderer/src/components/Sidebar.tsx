@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { request } from '../lib/socket'
 import type { Channel } from '../lib/types'
+import { AdminActions } from './AdminActions'
 import { UserVolume } from './UserVolume'
 import {
   joinVoice,
@@ -28,7 +29,7 @@ import { ConfirmModal, PromptModal } from './Modal'
 
 type Menu =
   | { kind: 'channel'; x: number; y: number; channel: Channel }
-  | { kind: 'user'; x: number; y: number; nickname: string }
+  | { kind: 'user'; x: number; y: number; userId: string; nickname: string; voice: boolean }
 
 type Dialog =
   | { type: 'create'; kind: Channel['kind'] }
@@ -150,7 +151,14 @@ export function Sidebar({
                   onContextMenu={(e) => {
                     e.preventDefault()
                     if (m.userId !== session.user.id)
-                      setMenu({ kind: 'user', x: e.clientX, y: e.clientY, nickname: m.nickname })
+                      setMenu({
+                        kind: 'user',
+                        x: e.clientX,
+                        y: e.clientY,
+                        userId: m.userId,
+                        nickname: m.nickname,
+                        voice: true,
+                      })
                   }}
                 >
                   <Avatar
@@ -174,7 +182,23 @@ export function Sidebar({
 
         <div className="section-title">Online — {online.length}</div>
         {online.map((u) => (
-          <div key={u.id} className="online-member">
+          <div
+            key={u.id}
+            className="online-member"
+            onContextMenu={(e) => {
+              e.preventDefault()
+              // o menu daqui só tem itens de admin
+              if (session.user.admin && u.id !== session.user.id)
+                setMenu({
+                  kind: 'user',
+                  x: e.clientX,
+                  y: e.clientY,
+                  userId: u.id,
+                  nickname: u.nickname,
+                  voice: false,
+                })
+            }}
+          >
             <Avatar name={u.nickname} size={24} />
             <span className="member-name">{u.nickname}</span>
           </div>
@@ -217,7 +241,8 @@ export function Sidebar({
       )}
       {menu?.kind === 'user' && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
-          <UserVolume nickname={menu.nickname} />
+          {menu.voice && <UserVolume nickname={menu.nickname} />}
+          <AdminActions userId={menu.userId} nickname={menu.nickname} onDone={() => setMenu(null)} />
         </ContextMenu>
       )}
 

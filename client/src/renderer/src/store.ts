@@ -34,6 +34,13 @@ export interface State {
   /** incrementa a cada evento do LiveKit para re-renderizar o palco */
   roomVersion: number
 
+  /** um admin mutou você na voz */
+  serverMuted: boolean
+  /** usuário que o admin está para banir (confirmação) */
+  banTarget: User | null
+  /** aviso na tela de entrada (ex.: banido) */
+  notice: string | null
+
   settings: Settings
   toast: string | null
 }
@@ -73,6 +80,9 @@ export const useStore = create<State>(() => ({
   sharing: false,
   speaking: [],
   roomVersion: 0,
+  serverMuted: false,
+  banTarget: null,
+  notice: null,
   settings: loadSettings(),
   toast: null,
 }))

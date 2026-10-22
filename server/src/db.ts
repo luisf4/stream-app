@@ -52,6 +52,16 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, id);
+  CREATE TABLE IF NOT EXISTS bans (
+    device_id TEXT PRIMARY KEY,
+    nickname TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS voice_mutes (
+    device_id TEXT PRIMARY KEY,
+    nickname TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS attachments (
     id TEXT PRIMARY KEY,
     file TEXT NOT NULL,
@@ -234,4 +244,50 @@ export function insertMessage(m: Omit<Message, 'id' | 'createdAt'>): Message {
 
 export function deleteMessage(id: number): void {
   db.prepare('DELETE FROM messages WHERE id = ?').run(id)
+}
+
+// ---------- moderação (por aparelho) ----------
+
+export interface Ban {
+  deviceId: string
+  nickname: string
+  createdAt: number
+}
+
+export function ban(deviceId: string, nickname: string): void {
+  db.prepare('INSERT OR REPLACE INTO bans (device_id, nickname, created_at) VALUES (?, ?, ?)').run(
+    deviceId,
+    nickname,
+    Date.now(),
+  )
+}
+
+export function unban(deviceId: string): void {
+  db.prepare('DELETE FROM bans WHERE device_id = ?').run(deviceId)
+}
+
+export function isBanned(deviceId: string): boolean {
+  return !!deviceId && !!db.prepare('SELECT 1 FROM bans WHERE device_id = ?').get(deviceId)
+}
+
+export function listBans(): Ban[] {
+  return db
+    .prepare('SELECT device_id AS deviceId, nickname, created_at AS createdAt FROM bans ORDER BY created_at DESC')
+    .all() as unknown as Ban[]
+}
+
+export function muteVoice(deviceId: string, nickname: string): void {
+  db.prepare('INSERT OR REPLACE INTO voice_mutes (device_id, nickname, created_at) VALUES (?, ?, ?)').run(
+    deviceId,
+    nickname,
+    Date.now(),
+  )
+}
+
+export function unmuteVoice(deviceId: string): void {
+  db.prepare('DELETE FROM voice_mutes WHERE device_id = ?').run(deviceId)
+}
+
+export function isVoiceMuted(deviceId: string): boolean {
+  return !!deviceId && !!db.prepare('SELECT 1 FROM voice_mutes WHERE device_id = ?').get(deviceId)
 }

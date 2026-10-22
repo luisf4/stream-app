@@ -281,6 +281,7 @@ function cleanup() {
     camera: false,
     sharing: false,
     speaking: [],
+    serverMuted: false,
   })
   bump()
 }
@@ -313,8 +314,10 @@ export async function joinVoice(channelId: string) {
   let r: Room | null = null
   let lastError: unknown
   try {
-    const { url, token } = await api.livekitToken(channelId)
+    const { url, token, voiceMuted } = await api.livekitToken(channelId)
     if (get().voiceChannelId !== channelId) return // saiu/trocou enquanto conectava
+    // mutado por admin: entra com o microfone desligado (o LiveKit nem deixaria publicar)
+    set({ serverMuted: voiceMuted, ...(voiceMuted ? { muted: true } : {}) })
     const attempt = createRoom()
     room = attempt
     joining = attempt
@@ -417,8 +420,26 @@ export function updateMicSettings(patch: Partial<MicSettings>) {
   void applyMicProcessing()
 }
 
+/** Um admin mutou (ou desmutou) você na voz; o voice:states do servidor avisa. */
+export function setServerMuted(serverMuted: boolean) {
+  if (serverMuted === get().serverMuted) return
+  set({ serverMuted })
+  if (!serverMuted) {
+    showToast('Um admin liberou seu microfone')
+    return
+  }
+  showToast('Um admin mutou você na voz')
+  if (!get().muted) {
+    set({ muted: true })
+    play('mute')
+    reportVoiceState()
+  }
+  void setMic(false)
+}
+
 export async function toggleMute() {
-  const { muted, deafened } = get()
+  const { muted, deafened, serverMuted } = get()
+  if (muted && serverMuted) return showToast('Um admin mutou você na voz')
   if (deafened) {
     // desmutar enquanto ensurdecido também tira o ensurdecer (igual ao Discord)
     set({ deafened: false, muted: false })
@@ -438,7 +459,7 @@ export async function toggleDeafen() {
     mutedBeforeDeafen = muted
     set({ deafened: true, muted: true })
   } else {
-    set({ deafened: false, muted: mutedBeforeDeafen })
+    set({ deafened: false, muted: mutedBeforeDeafen || get().serverMuted })
   }
   refreshAudio()
   play(get().deafened ? 'mute' : 'unmute')

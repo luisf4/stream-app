@@ -4,6 +4,11 @@
 		reverse_proxy 127.0.0.1:7880
 	}
 
+	# API do LiveKit (o servidor usa para mutar/expulsar; exige as chaves do .env)
+	handle /twirp/* {
+		reverse_proxy 127.0.0.1:7880
+	}
+
 	# API, arquivos e Socket.IO do Resenha
 	handle {
 		reverse_proxy 127.0.0.1:3000

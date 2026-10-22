@@ -8,12 +8,13 @@ export function Connect() {
   const [serverUrl, setServerUrl] = useState(last.serverUrl || '')
   const [nickname, setNickname] = useState(last.nickname)
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(() => useStore.getState().notice ?? '')
   const [loading, setLoading] = useState(false)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
+    useStore.setState({ notice: null })
     setLoading(true)
     try {
       const session = presetServer
