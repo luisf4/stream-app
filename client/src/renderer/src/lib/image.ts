@@ -24,3 +24,20 @@ export async function optimizeImage(file: File): Promise<File> {
     return file // formato que o navegador não decodifica: envia o original
   }
 }
+
+const AVATAR_SIDE = 256
+
+/** Foto de perfil: recorta o centro em quadrado, 256 px, WebP. GIF vai como está (pode ser animado). */
+export async function avatarImage(file: File): Promise<File> {
+  if (file.type === 'image/gif') return file
+  const bitmap = await createImageBitmap(file)
+  const side = Math.min(bitmap.width, bitmap.height)
+  const size = Math.min(AVATAR_SIDE, side)
+  const canvas = new OffscreenCanvas(size, size)
+  canvas
+    .getContext('2d')!
+    .drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size)
+  bitmap.close()
+  const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.9 })
+  return new File([blob], 'avatar.webp', { type: 'image/webp' })
+}

@@ -4,6 +4,11 @@ const SESSION_KEY = 'resenha.session'
 const LAST_KEY = 'resenha.last'
 const DEVICE_KEY = 'resenha.device'
 
+/** Guarda o apelido novo para a tela de entrada. */
+export function rememberNickname(nickname: string) {
+  localStorage.setItem(LAST_KEY, JSON.stringify({ ...loadLast(), nickname }))
+}
+
 /** Id fixo desta instalação; é o que um ban de admin bloqueia. */
 export function deviceId(): string {
   let id = localStorage.getItem(DEVICE_KEY)
@@ -109,6 +114,32 @@ export class Api {
     })
     const data = await parse<Pick<Session, 'token' | 'user'>>(res)
     return { ...this.session, ...data }
+  }
+
+  /** Troca o apelido. Devolve a sessão nova (o apelido vai no token). */
+  async updateProfile(nickname: string): Promise<Session> {
+    const res = await fetch(this.url('/api/profile'), {
+      method: 'POST',
+      headers: { ...this.headers(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nickname }),
+    })
+    const data = await parse<Pick<Session, 'token' | 'user'>>(res)
+    return { ...this.session, ...data }
+  }
+
+  async uploadAvatar(file: File): Promise<string> {
+    const form = new FormData()
+    form.append('file', file, file.name || 'avatar.webp')
+    const res = await fetch(this.url('/api/profile/avatar'), {
+      method: 'POST',
+      headers: this.headers(),
+      body: form,
+    })
+    return (await parse<{ avatar: string }>(res)).avatar
+  }
+
+  async removeAvatar(): Promise<void> {
+    await parse(await fetch(this.url('/api/profile/avatar'), { method: 'DELETE', headers: this.headers() }))
   }
 
   async upload(file: File): Promise<Attachment> {

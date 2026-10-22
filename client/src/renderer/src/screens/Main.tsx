@@ -3,7 +3,7 @@ import { ChatPanel } from '../components/ChatPanel'
 import { ChatIcon, HashIcon, SpeakerIcon } from '../components/Icons'
 import { ConfirmModal } from '../components/Modal'
 import { ScreenPicker } from '../components/ScreenPicker'
-import { SettingsModal } from '../components/SettingsModal'
+import { SettingsModal, type Tab as SettingsTab } from '../components/SettingsModal'
 import { Sidebar } from '../components/Sidebar'
 import { VoiceStage } from '../components/VoiceStage'
 import { logout } from '../lib/session'
@@ -26,7 +26,7 @@ export function Main() {
   const banTarget = useStore((s) => s.banTarget)
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [picker, setPicker] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null)
 
   useEffect(() => {
     connectSocket(
@@ -88,7 +88,7 @@ export function Main() {
 
   return (
     <div className="app">
-      <Sidebar onOpenSettings={() => setSettingsOpen(true)} onShareScreen={() => setPicker(true)} />
+      <Sidebar onOpenSettings={(tab = 'voice') => setSettingsTab(tab)} onShareScreen={() => setPicker(true)} />
 
       <main className="content">
         {channel && selectedChannelId && channel.kind === 'text' ? (
@@ -129,7 +129,7 @@ export function Main() {
       </main>
 
       {picker && <ScreenPicker onClose={() => setPicker(false)} />}
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsTab && <SettingsModal initialTab={settingsTab} onClose={() => setSettingsTab(null)} />}
       {banTarget && (
         <ConfirmModal
           title={`Banir ${banTarget.nickname}`}

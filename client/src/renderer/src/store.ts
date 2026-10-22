@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { Api, loadSession, saveSession } from './lib/api'
 import { presetServer } from './lib/config'
 import { loadSettings, saveSettings, type Settings } from './lib/settings'
-import type { Channel, Message, Session, User, VoiceState } from './lib/types'
+import type { Channel, Member, Message, Session, User, VoiceState } from './lib/types'
 import type { ShareStatus } from './lib/voice'
 
 export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting'
@@ -20,7 +20,8 @@ export interface State {
   /** canais com mensagem não lida que menciona você */
   mentioned: Record<string, boolean>
   voiceStates: VoiceState[]
-  online: User[]
+  /** todo mundo que já entrou no servidor, online primeiro */
+  members: Member[]
   /** canal -> apelido -> expira em (ms) */
   typing: Record<string, Record<string, number>>
 
@@ -73,7 +74,7 @@ export const useStore = create<State>(() => ({
   unread: {},
   mentioned: {},
   voiceStates: [],
-  online: [],
+  members: [],
   typing: {},
   voiceChannelId: null,
   voiceStatus: 'idle',
@@ -90,6 +91,10 @@ export const useStore = create<State>(() => ({
   settings: loadSettings(),
   toast: null,
 }))
+
+/** Membro pelo id (para foto e apelido atual). */
+export const useMember = (userId: string | undefined) =>
+  useStore((s) => (userId ? s.members.find((m) => m.id === userId) : undefined))
 
 export function updateSettings(patch: Partial<Settings>) {
   const settings = { ...useStore.getState().settings, ...patch }

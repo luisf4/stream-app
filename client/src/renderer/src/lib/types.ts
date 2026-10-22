@@ -2,6 +2,14 @@ export interface User {
   id: string
   nickname: string
   admin?: boolean
+  /** foto de perfil (/files/...) */
+  avatar?: string | null
+}
+
+/** Quem já entrou no servidor (um por PC). */
+export interface Member extends User {
+  online: boolean
+  lastSeen: number
 }
 
 export interface Session {

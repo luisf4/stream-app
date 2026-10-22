@@ -6,16 +6,20 @@ import {
   deleteAttachments,
   deleteChannel,
   deleteMessage,
+  ensureUser,
   getAttachments,
   getChannel,
   getMessage,
+  getUser,
   insertMessage,
   isBanned,
   isVoiceMuted,
   listBans,
   listChannels,
+  listUsers,
   muteVoice,
   renameChannel,
+  touchUser,
   unban,
   unmuteVoice,
 } from './db.js'
@@ -41,17 +45,61 @@ const MAX_MESSAGE = 4000
 const cleanName = (value: unknown) =>
   typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 40) : ''
 
+let onProfileChanged: (userId: string) => void = () => {}
+
+/** Apelido ou foto mudou (rotas de perfil): avisa todo mundo. */
+export const profileChanged = (userId: string) => onProfileChanged(userId)
+
 export function setupRealtime(io: Server) {
   const voice = new Map<string, VoiceState>() // socket.id -> estado de voz
   const online = new Map<string, { user: User; sockets: number }>()
 
   const voiceList = () => [...voice.values()]
-  const onlineList = () => [...online.values()].map((o) => publicUser(o.user))
+
+  /** Todo mundo que já entrou (um por PC): online primeiro, depois por nome. */
+  const membersList = () => {
+    const members = listUsers().map((m) => {
+      const live = online.get(m.id)?.user
+      return { ...m, admin: !!live?.admin, online: !!live }
+    })
+    // quem não tem aparelho (app bem antigo) não está no banco
+    for (const { user } of online.values()) {
+      if (!members.some((m) => m.id === user.id)) {
+        members.push({ ...publicUser(user), avatar: null, lastSeen: Date.now(), online: true })
+      }
+    }
+    return members.sort(
+      (a, b) => Number(b.online) - Number(a.online) || a.nickname.localeCompare(b.nickname, 'pt-BR'),
+    )
+  }
+
+  onProfileChanged = (userId) => {
+    const profile = getUser(userId)
+    if (!profile) return
+    const apply = (user: User) => {
+      user.nickname = profile.nickname
+      user.avatar = profile.avatar
+    }
+    for (const s of io.sockets.sockets.values()) {
+      if ((s.data.user as User).id === userId) apply(s.data.user as User)
+    }
+    const entry = online.get(userId)
+    if (entry) apply(entry.user)
+    for (const state of voice.values()) if (state.userId === userId) state.nickname = profile.nickname
+    io.emit('members', membersList())
+    io.emit('voice:states', voiceList())
+  }
 
   io.use((socket, next) => {
     const user = verifyToken(socket.handshake.auth?.token, socket.handshake.auth?.deviceId)
     if (!user) return next(new Error('unauthorized'))
     if (isBanned(user.deviceId)) return next(new Error('banned'))
+    if (user.deviceId) {
+      // o banco manda no apelido e na foto (podem ter mudado depois do token)
+      const profile = ensureUser(user.id, user.deviceId, user.nickname)
+      user.nickname = profile.nickname
+      user.avatar = profile.avatar
+    }
     socket.data.user = user
     next()
   })
@@ -78,8 +126,8 @@ export function setupRealtime(io: Server) {
       entry.user = user // pode ter virado (ou deixado de ser) admin
     } else online.set(user.id, { user, sockets: 1 })
 
-    socket.emit('init', { channels: listChannels(), voice: voiceList(), online: onlineList() })
-    io.emit('online', onlineList())
+    socket.emit('init', { channels: listChannels(), voice: voiceList(), members: membersList() })
+    io.emit('members', membersList())
 
     on('message:send', (p, reply) => {
       const channelId = String(p.channelId ?? '')
@@ -237,7 +285,8 @@ export function setupRealtime(io: Server) {
       if (voice.delete(socket.id)) io.emit('voice:states', voiceList())
       const current = online.get(user.id)
       if (current && --current.sockets <= 0) online.delete(user.id)
-      io.emit('online', onlineList())
+      touchUser(user.id)
+      io.emit('members', membersList())
     })
   })
 }

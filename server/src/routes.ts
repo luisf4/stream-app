@@ -14,8 +14,20 @@ import {
   tooManyAttempts,
 } from './auth.js'
 import { config, updateDir, uploadDir } from './config.js'
-import { getChannel, getMessages, insertAttachment, isBanned, isVoiceMuted } from './db.js'
+import {
+  ensureUser,
+  getChannel,
+  getMessages,
+  getUser,
+  insertAttachment,
+  isBanned,
+  isVoiceMuted,
+  setAvatar,
+  upsertUser,
+} from './db.js'
 import { publishSources } from './livekit.js'
+import { profileChanged } from './realtime.js'
+import { removeUploads } from './uploads.js'
 
 const BANNED = 'Você foi banido deste servidor.'
 
@@ -39,6 +51,8 @@ export function registerRoutes(app: FastifyInstance) {
     }
     if (isBanned(body.deviceId)) return reply.code(403).send({ error: BANNED })
     const { token, user } = issueToken(nickname, body.deviceId)
+    user.avatar = upsertUser(user.id, body.deviceId, nickname).avatar
+    profileChanged(user.id) // outro login do mesmo PC já aberto: o apelido pode ter mudado
     return {
       token,
       user,
@@ -59,6 +73,59 @@ export function registerRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'Senha de admin incorreta.' })
     }
     return issueToken(user.nickname, user.deviceId, true, user.id)
+  })
+
+  // Trocar o apelido. Devolve um token novo (o apelido vai nele).
+  app.post('/api/profile', async (req, reply) => {
+    const user = authenticate(req)
+    const body = (req.body ?? {}) as { nickname?: unknown }
+    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : ''
+    if (nickname.length < 1 || nickname.length > 32) {
+      return reply.code(400).send({ error: 'Apelido deve ter entre 1 e 32 caracteres.' })
+    }
+    if (!user.deviceId) return reply.code(400).send({ error: 'Atualize o app para editar o perfil.' })
+    upsertUser(user.id, user.deviceId, nickname)
+    profileChanged(user.id)
+    const session = issueToken(nickname, user.deviceId, user.admin, user.id)
+    session.user.avatar = getUser(user.id)?.avatar ?? null
+    return session
+  })
+
+  app.post('/api/profile/avatar', async (req, reply) => {
+    const user = authenticate(req)
+    if (!user.deviceId) return reply.code(400).send({ error: 'Atualize o app para editar o perfil.' })
+    const file = await req.file({ limits: { fileSize: AVATAR_MAX_MB * 1024 * 1024, files: 1 } })
+    if (!file) return reply.code(400).send({ error: 'Nenhuma imagem enviada' })
+    const ext = AVATAR_EXT[file.mimetype]
+    if (!ext) {
+      file.file.resume()
+      return reply.code(400).send({ error: 'Use uma imagem PNG, JPG, WebP ou GIF' })
+    }
+    const stored = `avatar-${randomBytes(12).toString('hex')}${ext}`
+    const dest = join(uploadDir, stored)
+    try {
+      await pipeline(file.file, createWriteStream(dest))
+    } catch (err) {
+      await unlink(dest).catch(() => {})
+      throw err
+    }
+    if (file.file.truncated) {
+      await unlink(dest).catch(() => {})
+      return reply.code(413).send({ error: `Imagem maior que ${AVATAR_MAX_MB} MB` })
+    }
+    ensureUser(user.id, user.deviceId, user.nickname)
+    const old = setAvatar(user.id, stored)
+    if (old) removeUploads([old])
+    profileChanged(user.id)
+    return { avatar: `/files/${stored}` }
+  })
+
+  app.delete('/api/profile/avatar', async (req) => {
+    const user = authenticate(req)
+    const old = setAvatar(user.id, null)
+    if (old) removeUploads([old])
+    profileChanged(user.id)
+    return { avatar: null }
   })
 
   app.get('/api/channels/:id/messages', async (req, reply) => {
@@ -148,6 +215,14 @@ export function registerRoutes(app: FastifyInstance) {
       userId: user.id,
     })
   })
+}
+
+const AVATAR_MAX_MB = 4
+const AVATAR_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
 }
 
 const UPDATE_FILE = /^[\w.-]+\.(yml|exe|blockmap)$/

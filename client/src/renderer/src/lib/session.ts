@@ -25,7 +25,7 @@ export function logout() {
     unread: {},
     mentioned: {},
     voiceStates: [],
-    online: [],
+    members: [],
     typing: {},
     serverMuted: false,
     banTarget: null,

@@ -1,7 +1,7 @@
 import { Track, type Participant } from 'livekit-client'
 import { useEffect, useRef, useState } from 'react'
 import { getRoom, joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleMute } from '../lib/voice'
-import { useStore } from '../store'
+import { useMember, useStore } from '../store'
 import { Avatar } from './Avatar'
 import { AdminActions } from './AdminActions'
 import { ContextMenu } from './ContextMenu'
@@ -44,6 +44,7 @@ function Lobby({ channelId, connecting }: { channelId: string; connecting: boole
   const channel = useStore((s) => s.channels.find((c) => c.id === channelId))
   const members = useStore((s) => s.voiceStates).filter((v) => v.channelId === channelId)
   const inOtherChannel = useStore((s) => s.voiceChannelId !== null && s.voiceChannelId !== channelId)
+  const avatars = useStore((s) => s.members)
 
   return (
     <section className="stage lobby">
@@ -52,7 +53,7 @@ function Lobby({ channelId, connecting }: { channelId: string; connecting: boole
         <div className="lobby-members">
           {members.map((m, i) => (
             <div key={`${m.userId}:${i}`} className="lobby-member">
-              <Avatar name={m.nickname} size={64} />
+              <Avatar name={m.nickname} src={avatars.find((a) => a.id === m.userId)?.avatar} size={64} />
               <span>{m.nickname}</span>
               {m.streaming && <span className="live">AO VIVO</span>}
             </div>
@@ -185,7 +186,10 @@ function Tile({
   const [showStats, setShowStats] = useState(false)
   const [volumeMenu, setVolumeMenu] = useState<{ x: number; y: number } | null>(null)
   const { participant, track, kind } = tile
+  // o volume fica guardado pelo nome no LiveKit; na tela vai o apelido atual
   const name = participant.name || participant.identity
+  const member = useMember(participant.identity)
+  const label = member?.nickname ?? name
   const remote = !participant.isLocal
   const volume = useStore((s) => s.settings.volumes[name])
   const pct = Math.round(((kind === 'screen' ? volume?.stream : volume?.voice) ?? 1) * 100)
@@ -227,12 +231,12 @@ function Tile({
           className={participant.isLocal && kind === 'camera' ? 'mirror' : undefined}
         />
       ) : (
-        <Avatar name={name} size={72} speaking={speaking} />
+        <Avatar name={label} src={member?.avatar} size={72} speaking={speaking} />
       )}
       <div className="tile-label">
         {kind === 'screen' && <span className="live">AO VIVO</span>}
         <span>
-          {name}
+          {label}
           {participant.isLocal ? ' (você)' : ''}
         </span>
         {kind === 'camera' && !participant.isMicrophoneEnabled && <MicIcon size={14} slashed />}
@@ -291,7 +295,7 @@ function Tile({
             <UserVolume nickname={name} />
             <AdminActions
               userId={participant.identity}
-              nickname={name}
+              nickname={label}
               onDone={() => setVolumeMenu(null)}
             />
           </ContextMenu>

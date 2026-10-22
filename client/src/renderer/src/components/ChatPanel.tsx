@@ -21,7 +21,7 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
   const messages = useStore((s) => s.messages[channelId])
   const hasMore = useStore((s) => s.hasMore[channelId])
   const typingMap = useStore((s) => s.typing[channelId])
-  const online = useStore((s) => s.online)
+  const members = useStore((s) => s.members)
   const voiceStates = useStore((s) => s.voiceStates)
 
   const listRef = useRef<HTMLDivElement>(null)
@@ -44,15 +44,18 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
 
   // ---------- menções (@apelido) ----------
 
-  // quem dá para mencionar: online, na voz e quem já escreveu neste canal (online primeiro)
+  const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members])
+  const memberByName = useMemo(() => new Map(members.map((m) => [m.nickname, m])), [members])
+
+  // quem dá para mencionar: membros (online primeiro), na voz e quem já escreveu neste canal
   const people = useMemo(() => {
     const names = [
-      ...online.map((u) => u.nickname),
+      ...members.map((u) => u.nickname),
       ...voiceStates.map((v) => v.nickname),
       ...(messages ?? []).map((m) => m.nickname),
     ]
     return [...new Set(names)]
-  }, [online, voiceStates, messages])
+  }, [members, voiceStates, messages])
   const mentionRe = useMemo(() => mentionRegex([...people, me.nickname]), [people, me.nickname])
 
   const suggestions = useMemo(() => {
@@ -231,6 +234,9 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
           const prev = messages[i - 1]
           const grouped =
             prev && prev.userId === m.userId && m.createdAt - prev.createdAt < GROUP_WINDOW
+          // apelido e foto atuais de quem mandou (a mensagem guarda o apelido da época)
+          const author = memberById.get(m.userId)
+          const nickname = author?.nickname ?? m.nickname
           return (
             <div
               key={m.id}
@@ -241,12 +247,12 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
               {grouped ? (
                 <div className="message-gutter" />
               ) : (
-                <Avatar name={m.nickname} size={36} />
+                <Avatar name={nickname} src={author?.avatar} size={36} />
               )}
               <div className="message-body">
                 {!grouped && (
                   <div className="message-header">
-                    <span className="message-author">{m.nickname}</span>
+                    <span className="message-author">{nickname}</span>
                     <span className="message-time">{formatTime(m.createdAt)}</span>
                   </div>
                 )}
@@ -305,9 +311,9 @@ export function ChatPanel({ channelId, wide = false }: { channelId: string; wide
                 }}
                 onMouseEnter={() => setMentionIndex(i)}
               >
-                <Avatar name={name} size={24} />
+                <Avatar name={name} src={memberByName.get(name)?.avatar} size={24} />
                 <span>{name}</span>
-                {online.some((u) => u.nickname === name) && <small>online</small>}
+                {memberByName.get(name)?.online && <small>online</small>}
               </button>
             ))}
           </div>

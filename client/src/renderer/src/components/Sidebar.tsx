@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { formatTime } from '../lib/format'
 import { request } from '../lib/socket'
 import type { Channel } from '../lib/types'
+import type { Tab as SettingsTab } from './SettingsModal'
 import { AdminActions } from './AdminActions'
 import { UserVolume } from './UserVolume'
 import {
@@ -42,7 +44,7 @@ export function Sidebar({
   onOpenSettings,
   onShareScreen,
 }: {
-  onOpenSettings: () => void
+  onOpenSettings: (tab?: SettingsTab) => void
   onShareScreen: () => void
 }) {
   const session = useStore((s) => s.session)!
@@ -54,7 +56,10 @@ export function Sidebar({
   const voiceChannelId = useStore((s) => s.voiceChannelId)
   const voiceStatus = useStore((s) => s.voiceStatus)
   const speaking = useStore((s) => s.speaking)
-  const online = useStore((s) => s.online)
+  const members = useStore((s) => s.members)
+  const online = members.filter((m) => m.online)
+  const offline = members.filter((m) => !m.online)
+  const avatarOf = (userId: string) => members.find((m) => m.id === userId)?.avatar
   const [menu, setMenu] = useState<Menu | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
 
@@ -165,6 +170,7 @@ export function Sidebar({
                 >
                   <Avatar
                     name={m.nickname}
+                    src={avatarOf(m.userId)}
                     size={24}
                     speaking={voiceChannelId === channel.id && speaking.includes(m.userId)}
                   />
@@ -201,10 +207,22 @@ export function Sidebar({
                 })
             }}
           >
-            <Avatar name={u.nickname} size={24} />
+            <Avatar name={u.nickname} src={u.avatar} size={24} online />
             <span className="member-name">{u.nickname}</span>
           </div>
         ))}
+
+        {offline.length > 0 && (
+          <>
+            <div className="section-title">Offline — {offline.length}</div>
+            {offline.map((u) => (
+              <div key={u.id} className="online-member offline" title={`Visto por último: ${formatTime(u.lastSeen)}`}>
+                <Avatar name={u.nickname} src={u.avatar} size={24} online={false} />
+                <span className="member-name">{u.nickname}</span>
+              </div>
+            ))}
+          </>
+        )}
       </nav>
 
       <VoicePanel onShareScreen={onShareScreen} />
@@ -365,7 +383,7 @@ function ShareHealth({ status }: { status: ShareStatus }) {
   )
 }
 
-function UserPanel({ onOpenSettings }: { onOpenSettings: () => void }) {
+function UserPanel({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => void }) {
   const user = useStore((s) => s.session!.user)
   const connected = useStore((s) => s.socketConnected)
   const muted = useStore((s) => s.muted)
@@ -373,13 +391,15 @@ function UserPanel({ onOpenSettings }: { onOpenSettings: () => void }) {
 
   return (
     <div className="user-panel">
-      <Avatar name={user.nickname} size={32} />
-      <div className="user-info">
-        <span className="user-name">{user.nickname}</span>
-        <span className={`user-status${connected ? '' : ' offline'}`}>
-          {connected ? 'Online' : 'Sem conexão…'}
-        </span>
-      </div>
+      <button className="user-profile" title="Editar perfil" onClick={() => onOpenSettings('profile')}>
+        <Avatar name={user.nickname} src={user.avatar} size={32} />
+        <div className="user-info">
+          <span className="user-name">{user.nickname}</span>
+          <span className={`user-status${connected ? '' : ' offline'}`}>
+            {connected ? 'Online' : 'Sem conexão…'}
+          </span>
+        </div>
+      </button>
       <button
         className="icon-btn"
         title={muted ? 'Desmutar' : 'Mutar'}
@@ -394,9 +414,10 @@ function UserPanel({ onOpenSettings }: { onOpenSettings: () => void }) {
       >
         <HeadphonesIcon size={18} slashed={deafened} />
       </button>
-      <button className="icon-btn" title="Configurações" onClick={onOpenSettings}>
+      <button className="icon-btn" title="Configurações" onClick={() => onOpenSettings()}>
         <SettingsIcon size={18} />
       </button>
     </div>
   )
 }
+

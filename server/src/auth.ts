@@ -9,10 +9,17 @@ export interface User {
   /** gerado pelo app uma vez por instalação; é o que o ban bloqueia (nunca vai para os outros) */
   deviceId: string
   admin: boolean
+  /** foto de perfil (/files/...), vem do banco */
+  avatar?: string | null
 }
 
 /** O que os outros veem de um usuário. */
-export const publicUser = (user: User) => ({ id: user.id, nickname: user.nickname, admin: user.admin })
+export const publicUser = (user: User) => ({
+  id: user.id,
+  nickname: user.nickname,
+  admin: user.admin,
+  avatar: user.avatar ?? null,
+})
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest()
 
@@ -35,13 +42,17 @@ const adminMark = () =>
 export const isDeviceId = (value: unknown): value is string =>
   typeof value === 'string' && /^[0-9a-f-]{36}$/i.test(value)
 
+/** Id público fixo de cada PC, derivado do aparelho (que nunca vai para os outros). */
+export const userIdFor = (deviceId: string) =>
+  sha256(`${config.jwtSecret}\0user\0${deviceId.toLowerCase()}`).toString('hex').slice(0, 32)
+
 export function issueToken(
   nickname: string,
   deviceId: string,
   admin = false,
-  id: string = randomUUID(),
+  id: string = deviceId ? userIdFor(deviceId) : randomUUID(),
 ): { token: string; user: User } {
-  const user = { id, nickname, deviceId, admin: admin && !!adminMark() }
+  const user: User = { id, nickname, deviceId, admin: admin && !!adminMark() }
   const claims = { name: nickname, dev: deviceId, ...(user.admin ? { adm: adminMark() } : {}) }
   const token = jwt.sign(claims, signingKey, { subject: id, expiresIn: '30d' })
   return { token, user }
@@ -55,7 +66,9 @@ export function verifyToken(token: unknown, fallbackDeviceId?: unknown): User | 
     if (typeof payload.sub !== 'string' || typeof payload.name !== 'string') return null
     const deviceId = isDeviceId(payload.dev) ? payload.dev : isDeviceId(fallbackDeviceId) ? fallbackDeviceId : ''
     const admin = typeof payload.adm === 'string' && payload.adm === adminMark()
-    return { id: payload.sub, nickname: payload.name, deviceId, admin }
+    // tokens antigos tinham um id aleatório por login; o do aparelho vale mais
+    const id = deviceId ? userIdFor(deviceId) : payload.sub
+    return { id, nickname: payload.name, deviceId, admin }
   } catch {
     return null
   }

@@ -71,6 +71,14 @@ db.exec(`
     user_id TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    nickname TEXT NOT NULL,
+    avatar TEXT,
+    created_at INTEGER NOT NULL,
+    last_seen INTEGER NOT NULL
+  );
 `)
 
 // bancos criados antes dos canais de texto: todo canal antigo é de voz
@@ -290,4 +298,57 @@ export function unmuteVoice(deviceId: string): void {
 
 export function isVoiceMuted(deviceId: string): boolean {
   return !!deviceId && !!db.prepare('SELECT 1 FROM voice_mutes WHERE device_id = ?').get(deviceId)
+}
+
+// ---------- membros (um por PC) ----------
+
+export interface Member {
+  id: string
+  nickname: string
+  /** /files/... */
+  avatar: string | null
+  lastSeen: number
+}
+
+const MEMBER_COLUMNS = 'id, nickname, avatar, last_seen AS lastSeen'
+
+/** Cria o membro ou, se já existe, atualiza apelido e visto por último. */
+export function upsertUser(id: string, deviceId: string, nickname: string): Member {
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO users (id, device_id, nickname, created_at, last_seen) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET nickname = excluded.nickname, last_seen = excluded.last_seen`,
+  ).run(id, deviceId, nickname, now, now)
+  return getUser(id)!
+}
+
+/** Entra no banco só se ainda não existe (ex.: token de antes da lista de membros). */
+export function ensureUser(id: string, deviceId: string, nickname: string): Member {
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO users (id, device_id, nickname, created_at, last_seen) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen`,
+  ).run(id, deviceId, nickname, now, now)
+  return getUser(id)!
+}
+
+export function getUser(id: string): Member | undefined {
+  return db.prepare(`SELECT ${MEMBER_COLUMNS} FROM users WHERE id = ?`).get(id) as Member | undefined
+}
+
+export function listUsers(): Member[] {
+  return db.prepare(`SELECT ${MEMBER_COLUMNS} FROM users`).all() as unknown as Member[]
+}
+
+/** Troca a foto e devolve o arquivo da antiga (para apagar do disco). */
+export function setAvatar(id: string, file: string | null): string | null {
+  const row = db.prepare('SELECT avatar FROM users WHERE id = ?').get(id) as
+    | { avatar: string | null }
+    | undefined
+  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(file && `/files/${file}`, id)
+  return row?.avatar ? row.avatar.replace(/^\/files\//, '') : null
+}
+
+export function touchUser(id: string): void {
+  db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(Date.now(), id)
 }

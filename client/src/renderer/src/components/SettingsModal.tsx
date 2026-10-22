@@ -1,23 +1,27 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { rememberNickname } from '../lib/api'
+import { avatarImage } from '../lib/image'
 import { startMicTest, type MicMeter } from '../lib/noise'
 import { logout, replaceSession } from '../lib/session'
 import { request } from '../lib/socket'
 import { micSettings, switchDevice, updateMicSettings } from '../lib/voice'
 import { showToast, updateSettings, useStore } from '../store'
+import { Avatar } from './Avatar'
 import { LogOutIcon } from './Icons'
 import { Modal } from './Modal'
 
-type Tab = 'voice' | 'shortcuts' | 'app' | 'account' | 'admin'
+export type Tab = 'profile' | 'voice' | 'shortcuts' | 'app' | 'account' | 'admin'
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'profile', label: 'Perfil' },
   { id: 'voice', label: 'Voz e vídeo' },
   { id: 'shortcuts', label: 'Atalhos' },
   { id: 'app', label: 'Chat e app' },
   { id: 'account', label: 'Conta' },
 ]
 
-export function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>('voice')
+export function SettingsModal({ onClose, initialTab = 'voice' }: { onClose: () => void; initialTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(initialTab)
   const isAdmin = useStore((s) => !!s.session?.user.admin)
   const tabs = isAdmin ? [...TABS, { id: 'admin' as const, label: 'Admin' }] : TABS
 
@@ -38,6 +42,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           ))}
         </nav>
         <div className="settings-page" role="tabpanel">
+          {tab === 'profile' && <ProfileTab />}
           {tab === 'voice' && <VoiceTab />}
           {tab === 'shortcuts' && <ShortcutsTab />}
           {tab === 'app' && <AppTab />}
@@ -50,6 +55,93 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 }
 
 // ---------- abas ----------
+
+function ProfileTab() {
+  const api = useStore((s) => s.api)!
+  const user = useStore((s) => s.session!.user)
+  const [nickname, setNickname] = useState(user.nickname)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const changed = nickname.trim() !== user.nickname && nickname.trim().length > 0
+
+  const saveNickname = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!changed) return
+    setSaving(true)
+    try {
+      const session = await api.updateProfile(nickname.trim())
+      rememberNickname(session.user.nickname)
+      replaceSession(session)
+      showToast('Apelido salvo')
+    } catch (err) {
+      showToast((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return
+    setUploading(true)
+    try {
+      await api.uploadAvatar(await avatarImage(file))
+      showToast('Foto atualizada')
+    } catch (err) {
+      showToast((err as Error).message || 'Não foi possível usar essa imagem')
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const removePhoto = async () => {
+    try {
+      await api.removeAvatar()
+    } catch (err) {
+      showToast((err as Error).message)
+    }
+  }
+
+  return (
+    <>
+      <h3>Perfil</h3>
+      <div className="settings-card profile-card">
+        <Avatar name={user.nickname} src={user.avatar} size={88} />
+        <div className="profile-photo-actions">
+          <button className="btn primary" disabled={uploading} onClick={() => fileRef.current?.click()}>
+            {uploading ? 'Enviando…' : user.avatar ? 'Trocar foto' : 'Escolher foto'}
+          </button>
+          {user.avatar && (
+            <button className="btn ghost" disabled={uploading} onClick={removePhoto}>
+              Remover foto
+            </button>
+          )}
+          <p className="muted">PNG, JPG, WebP ou GIF. A imagem é cortada em quadrado.</p>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          hidden
+          onChange={(e) => pickPhoto(e.target.files?.[0])}
+        />
+      </div>
+      <form className="settings-card" onSubmit={saveNickname}>
+        <label className="field">
+          <span>Apelido</span>
+          <div className="profile-name-row">
+            <input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={32} required />
+            <button className="btn primary" disabled={!changed || saving}>
+              {saving ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </label>
+      </form>
+    </>
+  )
+}
 
 function VoiceTab() {
   const settings = useStore((s) => s.settings)

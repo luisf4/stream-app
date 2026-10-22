@@ -1,9 +1,9 @@
 import { io, type Socket } from 'socket.io-client'
 import { selectChannel, showToast, useStore } from '../store'
-import { deviceId } from './api'
+import { deviceId, rememberNickname, saveSession } from './api'
 import { mentions } from './mentions'
 import { sounds } from './sounds'
-import type { Channel, Message, Session, User, VoiceState } from './types'
+import type { Channel, Member, Message, Session, VoiceState } from './types'
 import { leaveVoice, setServerMuted } from './voice'
 
 let socket: Socket | null = null
@@ -46,9 +46,23 @@ export function connectSocket(
     }
   }
 
-  s.on('init', (data: { channels: Channel[]; voice: VoiceState[]; online: User[] }) => {
+  const applyMembers = (members: Member[]) => {
+    set({ members })
+    // meu apelido/foto mudou (por outro login do mesmo PC, ou pela tela de perfil)
+    const session = get().session
+    const me = session && members.find((m) => m.id === session.user.id)
+    if (session && me && (me.nickname !== session.user.nickname || me.avatar !== session.user.avatar)) {
+      const next = { ...session, user: { ...session.user, nickname: me.nickname, avatar: me.avatar } }
+      saveSession(next)
+      rememberNickname(me.nickname)
+      set({ session: next })
+    }
+  }
+
+  s.on('init', (data: { channels: Channel[]; voice: VoiceState[]; members: Member[] }) => {
     // Depois de reconectar, recarrega o histórico do zero para não perder mensagens.
-    set({ voiceStates: data.voice, online: data.online, messages: {}, hasMore: {} })
+    set({ voiceStates: data.voice, messages: {}, hasMore: {} })
+    applyMembers(data.members ?? [])
     applyChannels(data.channels)
   })
   s.on('channels', applyChannels)
@@ -58,7 +72,7 @@ export function connectSocket(
     const mine = voiceStates.find((v) => v.userId === session?.user.id && v.channelId === voiceChannelId)
     if (mine) setServerMuted(!!mine.serverMuted)
   })
-  s.on('online', (online: User[]) => set({ online }))
+  s.on('members', applyMembers)
 
   s.on('message:new', (message: Message) => {
     const state = get()
