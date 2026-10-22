@@ -167,9 +167,12 @@ function setupDisplayMedia() {
 }
 
 // ---------- áudio da stream sem as vozes da call (Windows) ----------
-// O loopback do Electron pega todo o som do PC, inclusive as vozes que o próprio app toca, e os
-// amigos se escutavam pela stream. O helper (native/audio-capture) captura tudo MENOS este
-// processo e os filhos dele, e manda PCM float32 48 kHz estéreo pelo stdout.
+// O loopback do Electron pega todo o som do PC, inclusive as vozes que o próprio app toca (e as do
+// Discord, quando a galera está em call lá), e os amigos se escutavam pela stream. O helper
+// (native/audio-capture) captura tudo MENOS este processo, os filhos dele e os apps de voz abaixo,
+// e manda PCM float32 48 kHz estéreo pelo stdout.
+
+const excludedVoiceApps = ['Discord.exe', 'DiscordPTB.exe', 'DiscordCanary.exe']
 
 const audioHelperPath = join(__dirname, '../../resources/bin/resenha-audio.exe').replace(
   'app.asar',
@@ -187,7 +190,9 @@ ipcMain.handle('screenAudio:start', (event) => {
   stopAudioHelper()
   if (process.platform !== 'win32' || !existsSync(audioHelperPath)) return false
   const sender = event.sender
-  const child = spawn(audioHelperPath, ['--exclude-pid', String(process.pid)], { windowsHide: true })
+  const args = ['--exclude-pid', String(process.pid)]
+  for (const name of excludedVoiceApps) args.push('--exclude-name', name)
+  const child = spawn(audioHelperPath, args, { windowsHide: true })
   audioHelper = child
 
   return new Promise<boolean>((resolve) => {
