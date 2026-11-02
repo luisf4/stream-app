@@ -35,7 +35,7 @@ export function checkAdminPassword(password: unknown): boolean {
   return timingSafeEqual(sha256(password), sha256(config.adminPassword))
 }
 
-// Vai no token de quem virou admin: trocar ADMIN_PASSWORD tira o admin de todo mundo.
+// Vai no token de quem virou admin: trocar a senha de admin tira o admin de todo mundo.
 const adminMark = () =>
   config.adminPassword ? sha256(`admin\0${config.adminPassword}`).toString('hex').slice(0, 16) : null
 

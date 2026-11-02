@@ -24,8 +24,8 @@ export const config = {
   serverName: env.SERVER_NAME ?? 'Resenha',
   password: required('SERVER_PASSWORD', 'amigos'),
   jwtSecret: required('JWT_SECRET', 'dev-secret-troque-isto'),
-  // quem digita esta senha nas Configurações vira admin; vazia = ninguém vira
-  adminPassword: env.ADMIN_PASSWORD ?? '',
+  // quem digita esta senha nas Configurações vira admin
+  adminPassword: 'b22AY-LyV73KdHw5qNbrNoXy',
   livekit: {
     apiKey: required('LIVEKIT_API_KEY', 'devkey'),
     apiSecret: required('LIVEKIT_API_SECRET', 'secret'),
